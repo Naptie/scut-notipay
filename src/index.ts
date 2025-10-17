@@ -140,7 +140,8 @@ const checkAndSendNotifications = async () => {
 
         // Generate summary
         let messageText = `🏠 ${room}\n\n`;
-        messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
+        messageText +=
+          generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
 
         // Build message segments
         const messageSegments: SendMessageSegment[] = [
@@ -208,12 +209,27 @@ const stopNotificationTimer = () => {
 };
 
 const startDataCollectionTimer = () => {
-  // Check every 10 minutes for hourly data collection
-  dataCollectionInterval = setInterval(collectHourlyData, 10 * 60 * 1000);
-  console.log('[Data Collection] Hourly collection timer started (checks every 10 minutes)');
+  // Calculate delay until next top of the hour
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const seconds = now.getSeconds();
+  const milliseconds = now.getMilliseconds();
 
-  // Also run immediately on start
-  collectHourlyData();
+  // Time until next hour (in milliseconds)
+  const delayUntilNextHour = (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
+
+  console.log(
+    `[Data Collection] Will start hourly collection in ${Math.round(delayUntilNextHour / 1000 / 60)} minutes (at next hour)`
+  );
+
+  // Schedule first collection at the top of the next hour
+  setTimeout(() => {
+    collectHourlyData();
+
+    // Then collect every hour on the hour
+    dataCollectionInterval = setInterval(collectHourlyData, 60 * 60 * 1000);
+    console.log('[Data Collection] Hourly collection timer started (runs every hour on the hour)');
+  }, delayUntilNextHour);
 };
 
 const stopDataCollectionTimer = () => {
@@ -336,7 +352,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
 
       // Generate summary
       let messageText = `🏠 ${room}\n\n`;
-      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
+      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
 
       // Build message segments
       const messageSegments: SendMessageSegment[] = [{ type: 'text', data: { text: messageText } }];

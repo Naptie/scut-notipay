@@ -4,6 +4,7 @@ import config from '../config.json' with { type: 'json' };
 import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler } from './utils/database.js';
+import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
 
 const napcat = new NCWebsocket(
   {
@@ -39,6 +40,7 @@ const socketClose = createSignallable<void>();
 napcat.on('socket.open', () => {
   console.log('[NapCat] Connected.');
   startNotificationTimer();
+  startDataCollectionTimer();
 });
 
 napcat.on('socket.close', () => {
@@ -67,6 +69,50 @@ const parseMessage = (context: AllHandlers['message']) => {
 // Notification timer
 let notificationInterval: NodeJS.Timeout | null = null;
 
+// Hourly data collection timer
+let dataCollectionInterval: NodeJS.Timeout | null = null;
+
+const collectHourlyData = async () => {
+  try {
+    // Get all students who have credentials
+    const students = db.getAllStudents();
+    console.log(
+      `[Data Collection] Checking ${students.length} students for hourly data collection`
+    );
+
+    for (const student of students) {
+      try {
+        // Check if we should collect data for this user
+        if (!db.shouldCollectBillingData(student.qq_id)) {
+          continue; // Skip if last collection was <1 hour ago
+        }
+
+        // Get credentials
+        const credentials = db.getCredentials(student.qq_id);
+        if (!credentials) {
+          console.log(`[Data Collection] No credentials for QQ ${student.qq_id}, skipping`);
+          continue;
+        }
+
+        // Login and get bills
+        const result = await login(credentials.cardId, credentials.password);
+        const { electric, ac, water, room } = await getBills(result.access_token);
+
+        // Record billing history
+        db.addBillingHistory(student.qq_id, electric, water, ac, room);
+        console.log(`[Data Collection] Recorded hourly data for ${room}`);
+
+        // Update last login
+        db.updateLastLogin(student.qq_id);
+      } catch (error) {
+        console.error(`[Data Collection] Failed to collect data for QQ ${student.qq_id}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('[Data Collection] Error during hourly collection:', error);
+  }
+};
+
 const checkAndSendNotifications = async () => {
   try {
     const dueNotifications = scheduler.getDueNotifications();
@@ -86,18 +132,47 @@ const checkAndSendNotifications = async () => {
         const result = await login(credentials.cardId, credentials.password);
         const { electric, ac, water, room } = await getBills(result.access_token);
 
-        const message = `📊 ${room}\n电费余额：${electric} 元\n空调费余额：${ac} 元\n水费余额：${water} 元`;
+        // Get 24h change (data collection happens separately in hourly timer)
+        const change24h = db.getBilling24HourChange(notification.qq_id);
+
+        // Get history for chart (last 7 days for hourly data)
+        const history = db.getBillingHistory(notification.qq_id, 7);
+
+        // Generate summary
+        let messageText = `🏠 ${room}\n\n`;
+        messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
+
+        // Build message segments
+        const messageSegments: SendMessageSegment[] = [
+          { type: 'text', data: { text: messageText } }
+        ];
+
+        // Add chart image if we have enough data
+        if (history.length >= 2) {
+          const chartData = history.reverse().map((h) => ({
+            timestamp: h.recorded_at,
+            electric: Math.max(h.electric, 0),
+            water: Math.max(h.water, 0),
+            ac: Math.max(h.ac, 0)
+          }));
+
+          const chartBuffer = await generateBillingChart(chartData);
+          if (chartBuffer) {
+            const base64Image = `base64://${chartBuffer.toString('base64')}`;
+            messageSegments.push({ type: 'image', data: { file: base64Image } });
+          }
+        }
 
         // Send to appropriate chat
         if (notification.chat_type === 'private') {
           await napcat.send_private_msg({
             user_id: parseInt(notification.chat_id),
-            message: [{ type: 'text', data: { text: message } }]
+            message: messageSegments
           });
         } else {
           await napcat.send_group_msg({
             group_id: parseInt(notification.chat_id),
-            message: [{ type: 'text', data: { text: message } }]
+            message: messageSegments
           });
         }
 
@@ -116,7 +191,7 @@ const checkAndSendNotifications = async () => {
 };
 
 const startNotificationTimer = () => {
-  // Check every minute
+  // Check every minute for due notifications
   notificationInterval = setInterval(checkAndSendNotifications, 60 * 1000);
   console.log('[Scheduler] Notification timer started');
 
@@ -129,6 +204,23 @@ const stopNotificationTimer = () => {
     clearInterval(notificationInterval);
     notificationInterval = null;
     console.log('[Scheduler] Notification timer stopped');
+  }
+};
+
+const startDataCollectionTimer = () => {
+  // Check every 10 minutes for hourly data collection
+  dataCollectionInterval = setInterval(collectHourlyData, 10 * 60 * 1000);
+  console.log('[Data Collection] Hourly collection timer started (checks every 10 minutes)');
+
+  // Also run immediately on start
+  collectHourlyData();
+};
+
+const stopDataCollectionTimer = () => {
+  if (dataCollectionInterval) {
+    clearInterval(dataCollectionInterval);
+    dataCollectionInterval = null;
+    console.log('[Data Collection] Hourly collection timer stopped');
   }
 };
 
@@ -216,11 +308,6 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       console.log(`[DB] Stored credentials for ${result.name} (${result.sno})`);
 
       await send(`成功绑定到 ${result.name}（学号：${result.sno}）。`);
-
-      const { electric, ac, water, room } = await getBills(result.access_token);
-      await send(
-        `房间：${room}\n电费余额：${electric} 元\n空调费余额：${ac} 元\n水费余额：${water} 元`
-      );
     } else if (subcommand === 'unbind') {
       const deleted = db.deleteStudent(qqId);
       if (deleted) {
@@ -240,9 +327,39 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       db.updateLastLogin(qqId);
 
       const { electric, ac, water, room } = await getBills(result.access_token);
-      await send(
-        `房间：${room}\n电费余额：${electric} 元\n空调费余额：${ac} 元\n水费余额：${water} 元`
-      );
+
+      // Get 24h change
+      const change24h = db.getBilling24HourChange(qqId);
+
+      // Get history for chart (last 7 days)
+      const history = db.getBillingHistory(qqId, 7);
+
+      // Generate summary
+      let messageText = `🏠 ${room}\n\n`;
+      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
+
+      // Build message segments
+      const messageSegments: SendMessageSegment[] = [{ type: 'text', data: { text: messageText } }];
+
+      // Add chart image if we have enough data
+      if (history.length >= 2) {
+        const chartData = history.reverse().map((h) => ({
+          timestamp: h.recorded_at,
+          electric: Math.max(h.electric, 0),
+          water: Math.max(h.water, 0),
+          ac: Math.max(h.ac, 0)
+        }));
+
+        const chartBuffer = await generateBillingChart(chartData);
+        if (chartBuffer) {
+          const base64Image = `base64://${chartBuffer.toString('base64')}`;
+          messageSegments.push({ type: 'image', data: { file: base64Image } });
+        }
+      } else {
+        messageSegments[0].data.text += '\n\n💡 需要至少 2 条历史记录才能显示趋势图';
+      }
+
+      await send(messageSegments);
     } else if (subcommand === 'notify') {
       await handleNotifyCommand(command, params, qqId, context.message_type, chatId, send);
     } else if (subcommand === 'unnotify') {
@@ -266,6 +383,7 @@ process.on('SIGINT', async () => {
   console.log('\nGracefully shutting down...');
 
   stopNotificationTimer();
+  stopDataCollectionTimer();
 
   napcat.disconnect();
 

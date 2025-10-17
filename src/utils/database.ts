@@ -68,6 +68,19 @@ class StudentDatabase {
       )
     `;
 
+    const createBillingHistoryTableSQL = `
+      CREATE TABLE IF NOT EXISTS billing_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        qq_id TEXT NOT NULL,
+        electric REAL NOT NULL,
+        water REAL NOT NULL,
+        ac REAL NOT NULL,
+        room TEXT,
+        recorded_at TEXT DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (qq_id) REFERENCES students(qq_id) ON DELETE CASCADE
+      )
+    `;
+
     const createNotificationsTableSQL = `
       CREATE TABLE IF NOT EXISTS notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,11 +99,14 @@ class StudentDatabase {
     const createIndexSQL = `
       CREATE INDEX IF NOT EXISTS idx_qq_id ON students(qq_id);
       CREATE INDEX IF NOT EXISTS idx_card_id ON students(card_id);
+      CREATE INDEX IF NOT EXISTS idx_billing_qq_id ON billing_history(qq_id);
+      CREATE INDEX IF NOT EXISTS idx_billing_recorded_at ON billing_history(recorded_at);
       CREATE INDEX IF NOT EXISTS idx_chat ON notifications(chat_type, chat_id);
       CREATE INDEX IF NOT EXISTS idx_enabled ON notifications(enabled);
     `;
 
     this.db.exec(createTableSQL);
+    this.db.exec(createBillingHistoryTableSQL);
     this.db.exec(createNotificationsTableSQL);
     this.db.exec(createIndexSQL);
   }
@@ -257,6 +273,170 @@ class StudentDatabase {
     const stmt = this.db.prepare('SELECT COUNT(*) as count FROM students');
     const result = stmt.get() as { count: number };
     return result.count;
+  }
+
+  /**
+   * Add billing history record
+   */
+  addBillingHistory(
+    qqId: string,
+    electric: number,
+    water: number,
+    ac: number,
+    room?: string
+  ): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO billing_history (qq_id, electric, water, ac, room)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(qqId, electric, water, ac, room);
+  }
+
+  /**
+   * Get billing history for a user (last N days or N records)
+   */
+  getBillingHistory(
+    qqId: string,
+    days?: number,
+    limit?: number
+  ): Array<{
+    id: number;
+    qq_id: string;
+    electric: number;
+    water: number;
+    ac: number;
+    room: string | null;
+    recorded_at: string;
+  }> {
+    let sql = `
+      SELECT * FROM billing_history
+      WHERE qq_id = ?
+    `;
+
+    const params: (string | number)[] = [qqId];
+
+    if (days !== undefined) {
+      sql += ` AND datetime(recorded_at) >= datetime('now', 'localtime', '-' || ? || ' days')`;
+      params.push(days);
+    }
+
+    sql += ' ORDER BY recorded_at DESC';
+
+    if (limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+
+    const stmt = this.db.prepare(sql);
+    return stmt.all(...params) as Array<{
+      id: number;
+      qq_id: string;
+      electric: number;
+      water: number;
+      ac: number;
+      room: string | null;
+      recorded_at: string;
+    }>;
+  }
+
+  /**
+   * Get latest billing record for a user
+   */
+  getLatestBilling(qqId: string): {
+    id: number;
+    qq_id: string;
+    electric: number;
+    water: number;
+    ac: number;
+    room: string | null;
+    recorded_at: string;
+  } | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM billing_history
+      WHERE qq_id = ?
+      ORDER BY recorded_at DESC
+      LIMIT 1
+    `);
+    return stmt.get(qqId) as {
+      id: number;
+      qq_id: string;
+      electric: number;
+      water: number;
+      ac: number;
+      room: string | null;
+      recorded_at: string;
+    } | null;
+  }
+
+  /**
+   * Get billing change in last 24 hours
+   */
+  getBilling24HourChange(qqId: string): {
+    electric: number;
+    water: number;
+    ac: number;
+  } | null {
+    const stmt = this.db.prepare(`
+      SELECT 
+        (SELECT electric FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_electric,
+        (SELECT water FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_water,
+        (SELECT ac FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_ac,
+        (SELECT electric FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_electric,
+        (SELECT water FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_water,
+        (SELECT ac FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_ac
+    `);
+
+    const result = stmt.get(qqId, qqId, qqId, qqId, qqId, qqId) as {
+      current_electric: number | null;
+      current_water: number | null;
+      current_ac: number | null;
+      prev_electric: number | null;
+      prev_water: number | null;
+      prev_ac: number | null;
+    };
+
+    if (
+      result.current_electric === null ||
+      result.current_water === null ||
+      result.current_ac === null
+    ) {
+      return null;
+    }
+
+    return {
+      electric: result.current_electric - (result.prev_electric || result.current_electric),
+      water: result.current_water - (result.prev_water || result.current_water),
+      ac: result.current_ac - (result.prev_ac || result.current_ac)
+    };
+  }
+
+  /**
+   * Check if we should collect billing data (hourly collection)
+   * Returns true if last record is more than 1 hour old or doesn't exist
+   */
+  shouldCollectBillingData(qqId: string): boolean {
+    const latest = this.getLatestBilling(qqId);
+    if (!latest) {
+      return true; // No data, should collect
+    }
+
+    const lastRecordTime = new Date(latest.recorded_at).getTime();
+    const now = Date.now();
+    const oneHourInMs = 60 * 60 * 1000;
+
+    return now - lastRecordTime >= oneHourInMs;
+  }
+
+  /**
+   * Delete old billing history records (keep last N days)
+   */
+  cleanOldBillingHistory(days: number = 30): number {
+    const stmt = this.db.prepare(`
+      DELETE FROM billing_history
+      WHERE datetime(recorded_at) < datetime('now', 'localtime', '-' || ? || ' days')
+    `);
+    const result = stmt.run(days);
+    return result.changes;
   }
 
   /**

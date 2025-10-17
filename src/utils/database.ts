@@ -1,0 +1,291 @@
+import Database from 'better-sqlite3';
+import { randomBytes } from 'crypto';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { encryptionService } from './encryption.js';
+import config from '../../config.json' with { type: 'json' };
+import { NotificationScheduler } from './scheduler.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Database path - stored in project root
+const DB_PATH = path.join(__dirname, '..', '..', 'data.db');
+
+// Master password for encrypting card passwords
+// In production, this should be stored in environment variables or secure key management
+const MASTER_PASSWORD = config.encryptionKey;
+
+export interface Student {
+  id?: number;
+  qq_id: string;
+  card_id: string;
+  encrypted_password: string;
+  salt: string;
+  name?: string;
+  student_number?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_login?: string;
+}
+
+export interface StudentPublic {
+  id: number;
+  qq_id: string;
+  card_id: string;
+  name?: string;
+  student_number?: string;
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+}
+
+class StudentDatabase {
+  private db: Database.Database;
+
+  constructor(dbPath: string = DB_PATH) {
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL'); // Better concurrency
+    this.initializeDatabase();
+  }
+
+  /**
+   * Initialize the database schema
+   */
+  private initializeDatabase(): void {
+    const createTableSQL = `
+      CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        qq_id TEXT NOT NULL UNIQUE,
+        card_id TEXT NOT NULL,
+        encrypted_password TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        name TEXT,
+        student_number TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+        last_login TEXT
+      )
+    `;
+
+    const createNotificationsTableSQL = `
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_type TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        qq_id TEXT NOT NULL,
+        hour INTEGER NOT NULL CHECK(hour >= 0 AND hour <= 23),
+        enabled INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+        last_sent TEXT,
+        UNIQUE(chat_type, chat_id, qq_id)
+      )
+    `;
+
+    const createIndexSQL = `
+      CREATE INDEX IF NOT EXISTS idx_qq_id ON students(qq_id);
+      CREATE INDEX IF NOT EXISTS idx_card_id ON students(card_id);
+      CREATE INDEX IF NOT EXISTS idx_chat ON notifications(chat_type, chat_id);
+      CREATE INDEX IF NOT EXISTS idx_enabled ON notifications(enabled);
+    `;
+
+    this.db.exec(createTableSQL);
+    this.db.exec(createNotificationsTableSQL);
+    this.db.exec(createIndexSQL);
+  }
+
+  /**
+   * Generate a random salt (used for database versioning/migration tracking)
+   */
+  private generateSalt(): string {
+    return randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Add or update a student's credentials
+   */
+  addStudent(
+    qqId: string,
+    cardId: string,
+    password: string,
+    name?: string,
+    studentNumber?: string
+  ): StudentPublic {
+    const salt = this.generateSalt();
+    // Encrypt the actual card password for secure storage
+    const encryptedPassword = encryptionService.encrypt(password, MASTER_PASSWORD);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO students (qq_id, card_id, encrypted_password, salt, name, student_number)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(qq_id) DO UPDATE SET
+        card_id = excluded.card_id,
+        encrypted_password = excluded.encrypted_password,
+        salt = excluded.salt,
+        name = COALESCE(excluded.name, name),
+        student_number = COALESCE(excluded.student_number, student_number),
+        updated_at = datetime('now', 'localtime')
+    `);
+
+    stmt.run(qqId, cardId, encryptedPassword, salt, name, studentNumber);
+
+    const student = this.getStudent(qqId);
+    if (!student) {
+      throw new Error('Failed to add student');
+    }
+    return student;
+  }
+
+  /**
+   * Get student by QQ ID (without password)
+   */
+  getStudent(qqId: string): StudentPublic | null {
+    const stmt = this.db.prepare(`
+      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      FROM students
+      WHERE qq_id = ?
+    `);
+
+    return stmt.get(qqId) as StudentPublic | null;
+  }
+
+  /**
+   * Get student credentials (with encrypted password for verification)
+   */
+  getStudentCredentials(qqId: string): Student | null {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM students
+      WHERE qq_id = ?
+    `);
+
+    return stmt.get(qqId) as Student | null;
+  }
+
+  /**
+   * Verify student by checking if credentials can be decrypted
+   */
+  verifyStudent(qqId: string): boolean {
+    const credentials = this.getCredentials(qqId);
+    return credentials !== null;
+  }
+
+  /**
+   * Get decrypted credentials for API calls
+   */
+  getCredentials(qqId: string): { cardId: string; password: string } | null {
+    const student = this.getStudentCredentials(qqId);
+    if (!student) {
+      return null;
+    }
+
+    try {
+      const decryptedPassword = encryptionService.decrypt(
+        student.encrypted_password,
+        MASTER_PASSWORD
+      );
+      return { cardId: student.card_id, password: decryptedPassword };
+    } catch (error) {
+      console.error('Failed to decrypt password:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update last login timestamp
+   */
+  updateLastLogin(qqId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE students
+      SET last_login = datetime('now', 'localtime')
+      WHERE qq_id = ?
+    `);
+
+    stmt.run(qqId);
+  }
+
+  /**
+   * Update student information
+   */
+  updateStudentInfo(qqId: string, name?: string, studentNumber?: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE students
+      SET name = COALESCE(?, name),
+          student_number = COALESCE(?, student_number),
+          updated_at = datetime('now', 'localtime')
+      WHERE qq_id = ?
+    `);
+
+    stmt.run(name, studentNumber, qqId);
+  }
+
+  /**
+   * Delete a student
+   */
+  deleteStudent(qqId: string): boolean {
+    const stmt = this.db.prepare('DELETE FROM students WHERE qq_id = ?');
+    const result = stmt.run(qqId);
+    return result.changes > 0;
+  }
+
+  /**
+   * Get all students (without passwords)
+   */
+  getAllStudents(): StudentPublic[] {
+    const stmt = this.db.prepare(`
+      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      FROM students
+      ORDER BY created_at DESC
+    `);
+
+    return stmt.all() as StudentPublic[];
+  }
+
+  /**
+   * Check if student exists
+   */
+  studentExists(qqId: string): boolean {
+    const stmt = this.db.prepare('SELECT 1 FROM students WHERE qq_id = ? LIMIT 1');
+    return stmt.get(qqId) !== undefined;
+  }
+
+  /**
+   * Get student count
+   */
+  getStudentCount(): number {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM students');
+    const result = stmt.get() as { count: number };
+    return result.count;
+  }
+
+  /**
+   * Close database connection
+   */
+  close(): void {
+    this.db.close();
+  }
+
+  /**
+   * Backup database
+   */
+  backup(backupPath: string): void {
+    this.db.backup(backupPath);
+  }
+
+  /**
+   * Get the underlying database instance
+   */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
+}
+
+// Export singleton instance
+export const db = new StudentDatabase();
+
+// Create and export scheduler instance using the same database
+export const scheduler = new NotificationScheduler(db.getDatabase());
+
+// Export class for testing or custom instances
+export { StudentDatabase };

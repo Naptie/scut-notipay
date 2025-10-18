@@ -4,7 +4,7 @@ import config from '../config.json' with { type: 'json' };
 import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
-import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
+import { generateBillingChart, generateBillingSummary } from './utils/presentation.js';
 import { CAMPUSES } from './utils/constants.js';
 
 /**

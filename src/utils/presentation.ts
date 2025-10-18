@@ -1,7 +1,3 @@
-/**
- * Chart Generation for Billing Data using Chart.js
- */
-
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import type { ChartConfiguration } from 'chart.js';
 
@@ -108,8 +104,8 @@ export const generateBillingChart = async (
             text: '时间'
           },
           ticks: {
-            maxRotation: 30,
-            minRotation: 90
+            maxRotation: 90,
+            minRotation: 30
           }
         }
       }

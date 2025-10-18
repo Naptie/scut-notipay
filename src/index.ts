@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { NCWebsocket } from 'node-napcat-ts';
 import type { AllHandlers, SendMessageSegment } from 'node-napcat-ts';
 import config from '../config.json' with { type: 'json' };
@@ -6,6 +7,14 @@ import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/presentation.js';
 import { CAMPUSES } from './utils/constants.js';
+
+let commitHash: string;
+try {
+  commitHash = execSync('git rev-parse HEAD').toString().trim().slice(0, 7);
+} catch (e) {
+  console.error('Failed to get git commit hash:', e);
+  commitHash = 'unknown';
+}
 
 /**
  * Store an access token for a user
@@ -146,7 +155,7 @@ const parseMessage = (context: AllHandlers['message']) => {
     .filter(Boolean);
   if (!segments.length) return { command: null, args: null };
   const command = segments[0];
-  if (!config.commandNames.includes(command)) return { command, args: null };
+  if (!config.commandNames.includes(command)) return { command: null, args: null };
   return { command, args: segments.slice(1) };
 };
 
@@ -360,6 +369,32 @@ const handleUnnotifyCommand = async (
   }
 };
 
+const handleHelp = async (
+  command: string,
+  sendFn: (message: string | SendMessageSegment[]) => Promise<void>
+) => {
+  const message =
+    '[scut-notify] 可用命令：\n\n' +
+    '1. 绑定账号（私聊）：\n' +
+    `${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>\n` +
+    `   例：${command} bind 123456 123456 GZIC\n\n` +
+    '2. 解绑账号（私聊或群聊）：\n' +
+    `${command} unbind\n\n` +
+    '3. 查询当前账单（私聊或群聊）：\n' +
+    `${command} query\n` +
+    '   或\n' +
+    `${command} bills\n\n` +
+    '4. 设置定时通知（私聊或群聊）：\n' +
+    `${command} notify <小时 (0-23)> [阈值]\n` +
+    `   例：${command} notify 20 10\n` +
+    '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
+    '5. 取消定时通知（私聊或群聊）：\n' +
+    `${command} unnotify\n\n` +
+    '如有疑问，请联系管理员。\n' +
+    `当前 commit：${commitHash}`;
+  await sendFn([{ type: 'node', data: { content: [{ type: 'text', data: { text: message } }] } }]);
+};
+
 napcat.on('message', async (context: AllHandlers['message']) => {
   const isPrivateChat = context.message_type === 'private';
   const send = async (message: string | SendMessageSegment[]) => {
@@ -378,7 +413,11 @@ napcat.on('message', async (context: AllHandlers['message']) => {
 
   try {
     const { command, args } = parseMessage(context);
-    if (!command || !args) return;
+    if (!command) return;
+    if (!args || args.length === 0) {
+      await handleHelp(command, send);
+      return;
+    }
     const [subcommand, ...params] = args;
     const qqId = context.sender.user_id.toString();
     const chatId = (isPrivateChat ? context.sender.user_id : context.group_id).toString();

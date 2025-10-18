@@ -20,6 +20,9 @@ importers:
       chartjs-node-canvas:
         specifier: ^5.0.0
         version: 5.0.0(chart.js@4.5.1)
+      child_process:
+        specifier: ^1.0.2
+        version: 1.0.2
       node-napcat-ts:
         specifier: ^0.4.20
         version: 0.4.20
@@ -438,6 +441,9 @@ packages:
     resolution: {integrity: sha512-+Lc5phRWjb+UxAIiQpKgvOaG6Mw276YQx2jl2BrxoUtI3A4RYTZuGM5Dq+s4ReYmCY42WEPSR6viF3lDSTxpvw==}
     peerDependencies:
       chart.js: ^4.4.8
+
+  child_process@1.0.2:
+    resolution: {integrity: sha512-Wmza/JzL0SiWz7kl6MhIKT5ceIlnFPJX+lwUGj7Clhy5MMldsSoJR0+uvRzOS5Kv45Mq7t1PoE8TsOA9bzvb6g==}
 
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
@@ -1278,6 +1284,8 @@ snapshots:
       canvas: 3.2.0
       chart.js: 4.5.1
       tslib: 2.8.1
+
+  child_process@1.0.2: {}
 
   chownr@1.1.4: {}
 

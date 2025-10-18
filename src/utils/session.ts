@@ -34,6 +34,10 @@ export const obtainToken = async (username: string, password: string) => {
     sno: string;
   };
 
+  if (!data.access_token) {
+    return null;
+  }
+
   const setCookieHeader = response.headers.get('set-cookie') || '';
   const cookies = setCookieHeader.split(',').map((c) => c.trim());
 

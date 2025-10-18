@@ -39,6 +39,9 @@ const getValidToken = async (qqId: string): Promise<[string, string, string]> =>
   }
 
   const result = await login(credentials.cardId, credentials.password);
+  if (result === null) {
+    throw new Error('Login failed');
+  }
 
   // Store the new token
   storeToken(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
@@ -78,6 +81,9 @@ const getBillsWithTokenRefresh = async (qqId: string) => {
     }
 
     const result = await login(credentials.cardId, credentials.password);
+    if (result === null) {
+      throw new Error('Login failed');
+    }
     storeToken(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
 
     // Retry with fresh token
@@ -389,6 +395,10 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       }
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
+      if (result === null) {
+        await send('登录失败，请检查卡号和密码是否正确。');
+        return;
+      }
       db.addStudent(
         qqId,
         cardId,

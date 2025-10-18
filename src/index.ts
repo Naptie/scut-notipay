@@ -170,7 +170,7 @@ const runHourlyTasks = async () => {
 
         // 2. Send Notification (if due)
         if (student.notification_hour !== null && student.notification_hour === currentHour) {
-          console.log(`[Scheduler] Sending notification to ${student.name || student.qq_id}`);
+          console.log(`[Scheduler] Sending notification to ${student.name || student.qq_id} (${room})`);
 
           // Get 24h change
           const change24h = db.getBilling24HourChange(student.qq_id);

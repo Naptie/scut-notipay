@@ -29,10 +29,13 @@ export interface Student {
   last_login?: string;
 }
 
+export type Campus = 'GZIC' | 'DXC';
+
 export interface StudentPublic {
   id: number;
   qq_id: string;
   card_id: string;
+  campus: Campus;
   name?: string;
   student_number?: string;
   created_at: string;
@@ -58,11 +61,14 @@ class StudentDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         qq_id TEXT NOT NULL UNIQUE,
         card_id TEXT NOT NULL,
+        campus TEXT NOT NULL CHECK(campus IN ('GZIC', 'DXC')),
         encrypted_password TEXT NOT NULL,
         salt TEXT NOT NULL,
         name TEXT,
         student_number TEXT,
         access_token TEXT,
+        tgc TEXT,
+        loc_session TEXT,
         token_expires_at TEXT,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -125,6 +131,7 @@ class StudentDatabase {
   addStudent(
     qqId: string,
     cardId: string,
+    campus: Campus,
     password: string,
     name?: string,
     studentNumber?: string
@@ -134,10 +141,11 @@ class StudentDatabase {
     const encryptedPassword = encryptionService.encrypt(password, MASTER_PASSWORD);
 
     const stmt = this.db.prepare(`
-      INSERT INTO students (qq_id, card_id, encrypted_password, salt, name, student_number)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO students (qq_id, card_id, campus, encrypted_password, salt, name, student_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(qq_id) DO UPDATE SET
         card_id = excluded.card_id,
+        campus = excluded.campus,
         encrypted_password = excluded.encrypted_password,
         salt = excluded.salt,
         name = COALESCE(excluded.name, name),
@@ -145,7 +153,7 @@ class StudentDatabase {
         updated_at = datetime('now', 'localtime')
     `);
 
-    stmt.run(qqId, cardId, encryptedPassword, salt, name, studentNumber);
+    stmt.run(qqId, cardId, campus, encryptedPassword, salt, name, studentNumber);
 
     const student = this.getStudent(qqId);
     if (!student) {
@@ -159,12 +167,26 @@ class StudentDatabase {
    */
   getStudent(qqId: string): StudentPublic | null {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
       FROM students
       WHERE qq_id = ?
     `);
 
     return stmt.get(qqId) as StudentPublic | null;
+  }
+
+  /**
+ * Get student's campus by QQ ID
+ */
+  getCampus(qqId: string): Campus | null {
+    const stmt = this.db.prepare(`
+      SELECT campus
+      FROM students
+      WHERE qq_id = ?
+    `);
+
+    const result = stmt.get(qqId) as { campus: Campus } | undefined;
+    return result ? result.campus : null;
   }
 
   /**
@@ -210,19 +232,24 @@ class StudentDatabase {
   }
 
   /**
-   * Get stored access token if it exists and is not expired
+   * Get stored tokens if it exists and is not expired
    */
-  getAccessToken(qqId: string): string | null {
+  getTokens(qqId: string): [string, string, string] | null {
     const stmt = this.db.prepare(`
-      SELECT access_token, token_expires_at
+      SELECT access_token, tgc, loc_session, token_expires_at
       FROM students
       WHERE qq_id = ?
     `);
     const result = stmt.get(qqId) as
-      | { access_token: string | null; token_expires_at: string | null }
+      | {
+        access_token: string | null;
+        tgc: string | null;
+        loc_session: string | null;
+        token_expires_at: string | null
+      }
       | undefined;
 
-    if (!result || !result.access_token || !result.token_expires_at) {
+    if (!result || !result.access_token || !result.tgc || !result.loc_session || !result.token_expires_at) {
       return null;
     }
 
@@ -235,34 +262,38 @@ class StudentDatabase {
       return null; // Token expired or about to expire
     }
 
-    return result.access_token;
+    return [result.access_token, result.tgc, result.loc_session];
   }
 
   /**
-   * Update access token and expiration time for a user
+   * Update tokens and expiration time for a user
    */
-  updateAccessToken(qqId: string, accessToken: string, expiresIn: number): void {
+  updateTokens(qqId: string, accessToken: string, TGC: string, locSession: string, expiresIn: number): void {
     // Calculate expiration time (expiresIn is in seconds)
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
     const stmt = this.db.prepare(`
       UPDATE students
       SET access_token = ?,
+          tgc = ?,
+          loc_session = ?,
           token_expires_at = ?,
           updated_at = datetime('now', 'localtime')
       WHERE qq_id = ?
     `);
 
-    stmt.run(accessToken, expiresAt.toISOString(), qqId);
+    stmt.run(accessToken, TGC, locSession, expiresAt.toISOString(), qqId);
   }
 
   /**
-   * Clear access token for a user (when token is invalid)
+   * Clear tokens for a user (when token is invalid)
    */
   clearAccessToken(qqId: string): void {
     const stmt = this.db.prepare(`
       UPDATE students
       SET access_token = NULL,
+          tgc = NULL,
+          loc_session = NULL,
           token_expires_at = NULL,
           updated_at = datetime('now', 'localtime')
       WHERE qq_id = ?
@@ -317,6 +348,7 @@ class StudentDatabase {
         s.id, 
         s.qq_id, 
         s.card_id, 
+        s.campus,
         s.name, 
         s.student_number, 
         s.created_at, 
@@ -335,7 +367,7 @@ class StudentDatabase {
    */
   getAllStudents(): StudentPublic[] {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
       FROM students
       ORDER BY created_at DESC
     `);

@@ -97,6 +97,7 @@ class StudentDatabase {
         chat_id TEXT NOT NULL,
         qq_id TEXT NOT NULL,
         hour INTEGER NOT NULL CHECK(hour >= 0 AND hour <= 23),
+        threshold REAL,
         enabled INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -343,7 +344,12 @@ class StudentDatabase {
   /**
    * Get all students with their notification settings
    */
-  getAllStudentsWithNotifications(): Array<StudentPublic & { notification_hour: number | null }> {
+  getAllStudentsWithNotifications(): Array<StudentPublic & { 
+    notification_hour: number | null; 
+    notification_threshold: number | null;
+    notification_chat_type: 'private' | 'group' | null;
+    notification_chat_id: string | null;
+  }> {
     const stmt = this.db.prepare(`
       SELECT 
         s.id, 
@@ -355,12 +361,20 @@ class StudentDatabase {
         s.created_at, 
         s.updated_at, 
         s.last_login,
-        (SELECT n.hour FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_hour
+        (SELECT n.hour FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_hour,
+        (SELECT n.threshold FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_threshold,
+        (SELECT n.chat_type FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_chat_type,
+        (SELECT n.chat_id FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_chat_id
       FROM students s
       ORDER BY s.created_at DESC
     `);
 
-    return stmt.all() as Array<StudentPublic & { notification_hour: number | null }>;
+    return stmt.all() as Array<StudentPublic & { 
+      notification_hour: number | null; 
+      notification_threshold: number | null;
+      notification_chat_type: 'private' | 'group' | null;
+      notification_chat_id: string | null;
+    }>;
   }
 
   /**

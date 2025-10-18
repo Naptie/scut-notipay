@@ -10,10 +10,11 @@ const commands = {
   list: () => {
     const notifications = scheduler.getEnabledNotifications();
     console.log(`\nTotal notifications: ${notifications.length}\n`);
-    console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour');
+    console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour\tThreshold');
     console.log('─'.repeat(100));
     notifications.forEach((n) => {
-      console.log(`${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00`);
+      const thresholdStr = n.threshold !== null && n.threshold !== undefined ? n.threshold.toString() : 'none';
+      console.log(`${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00\t${thresholdStr}`);
     });
     console.log();
   },
@@ -42,9 +43,9 @@ const commands = {
     }
   },
 
-  add: (chatType: string, chatId: string, qqId: string, hour: string) => {
+  add: (chatType: string, chatId: string, qqId: string, hour: string, threshold?: string) => {
     if (!chatType || !chatId || !qqId || !hour) {
-      console.error('Usage: add <chat_type> <chat_id> <qq_id> <hour>');
+      console.error('Usage: add <chat_type> <chat_id> <qq_id> <hour> [threshold]');
       return;
     }
     if (chatType !== 'private' && chatType !== 'group') {
@@ -56,11 +57,22 @@ const commands = {
       console.error('hour must be between 0 and 23');
       return;
     }
+    
+    let thresholdNum: number | undefined;
+    if (threshold !== undefined) {
+      thresholdNum = parseFloat(threshold);
+      if (isNaN(thresholdNum) || thresholdNum < 0) {
+        console.error('threshold must be a non-negative number');
+        return;
+      }
+    }
+    
     const notification = scheduler.setNotification(
       chatType as 'private' | 'group',
       chatId,
       qqId,
-      hourNum
+      hourNum,
+      thresholdNum
     );
     console.log('\nNotification added/updated:');
     console.log(JSON.stringify(notification, null, 2));
@@ -116,7 +128,7 @@ Commands:
   count                                   Show total notification count
   get <chat_type> <chat_id> <qq_id>      Get notification details
   add <chat_type> <chat_id> <qq_id>      Add/update notification
-      <hour>
+      <hour> [threshold]
   disable <chat_type> <chat_id> <qq_id>  Disable notification
   delete <chat_type> <chat_id> <qq_id>   Delete notification
   due                                     Show notifications due now
@@ -125,9 +137,15 @@ Commands:
 
 Chat Types: private, group
 
+Parameters:
+  hour       - Hour of day (0-23) to send notification
+  threshold  - Optional minimum balance threshold. If set, notification
+               will only be sent when any balance drops below this value.
+
 Examples:
   tsx scripts/notify-cli.ts list
   tsx scripts/notify-cli.ts add private 123456789 123456789 8
+  tsx scripts/notify-cli.ts add private 123456789 123456789 8 50
   tsx scripts/notify-cli.ts add group 987654321 123456789 20
   tsx scripts/notify-cli.ts get private 123456789 123456789
   tsx scripts/notify-cli.ts delete private 123456789 123456789

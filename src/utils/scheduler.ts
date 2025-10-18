@@ -6,6 +6,7 @@ export interface Notification {
   chat_id: string;
   qq_id: string;
   hour: number;
+  threshold?: number | null;
   enabled: boolean;
   created_at?: string;
   updated_at?: string;
@@ -25,22 +26,28 @@ class NotificationScheduler {
     chatType: 'private' | 'group',
     chatId: string,
     qqId: string,
-    hour: number
+    hour: number,
+    threshold?: number
   ): Notification {
     if (hour < 0 || hour > 23) {
       throw new Error('Hour must be between 0 and 23');
     }
 
+    if (threshold !== undefined && threshold < 0) {
+      throw new Error('Threshold must be a positive number');
+    }
+
     const stmt = this.db.prepare(`
-      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, enabled)
-      VALUES (?, ?, ?, ?, 1)
+      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, threshold, enabled)
+      VALUES (?, ?, ?, ?, ?, 1)
       ON CONFLICT(chat_type, chat_id, qq_id) DO UPDATE SET
         hour = excluded.hour,
+        threshold = excluded.threshold,
         enabled = 1,
         updated_at = datetime('now', 'localtime')
     `);
 
-    stmt.run(chatType, chatId, qqId, hour);
+    stmt.run(chatType, chatId, qqId, hour, threshold ?? null);
 
     const notification = this.getNotification(chatType, chatId, qqId);
     if (!notification) {

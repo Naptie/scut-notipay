@@ -10,10 +10,16 @@ import { CAMPUSES } from './utils/constants.js';
 /**
  * Store an access token for a user
  */
-const storeToken = (qqId: string, accessToken: string, TGC: string, loc_session: string, expiresIn: number) => {
+const storeToken = (
+  qqId: string,
+  accessToken: string,
+  TGC: string,
+  loc_session: string,
+  expiresIn: number
+) => {
   db.updateTokens(qqId, accessToken, TGC, loc_session, expiresIn);
   console.log(`[Token] Stored token for QQ ${qqId}, expires in ${expiresIn}s`);
-}
+};
 
 /**
  * Get a valid access token for a user
@@ -44,7 +50,7 @@ const getValidToken = async (qqId: string): Promise<[string, string, string]> =>
  * Get the user's campus
  */
 const getCampus = (qqId: string): Campus => {
-  const result = db.getCampus(qqId)
+  const result = db.getCampus(qqId);
 
   if (!result) {
     throw new Error('No campus found for user');
@@ -170,7 +176,27 @@ const runHourlyTasks = async () => {
 
         // 2. Send Notification (if due)
         if (student.notification_hour !== null && student.notification_hour === currentHour) {
-          console.log(`[Scheduler] Sending notification to ${student.name || student.qq_id} (${room})`);
+          // Check if threshold is set and if any balance is below it
+          let shouldSendNotification = true;
+          if (
+            student.notification_threshold !== null &&
+            student.notification_threshold !== undefined
+          ) {
+            // Only send if any balance drops below the threshold
+            const threshold = student.notification_threshold;
+            shouldSendNotification =
+              (electric >= -10 && electric < threshold) ||
+              (water >= -10 && water < threshold) ||
+              (ac >= -10 && ac < threshold);
+
+            if (!shouldSendNotification) {
+              continue;
+            }
+          }
+
+          console.log(
+            `[Scheduler] Sending notification to ${student.name || student.qq_id} (${room})`
+          );
 
           // Get 24h change
           const change24h = db.getBilling24HourChange(student.qq_id);
@@ -203,23 +229,21 @@ const runHourlyTasks = async () => {
             }
           }
 
-          // Send message (assuming private chat for now, needs adjustment if group)
-          // We need to get chat_id and chat_type from notifications table
-          const notificationDetails = scheduler.getNotificationForUser(student.qq_id);
-          if (notificationDetails) {
-            if (notificationDetails.chat_type === 'private') {
+          // Send message
+          if (student.notification_chat_type && student.notification_chat_id) {
+            if (student.notification_chat_type === 'private') {
               await napcat.send_private_msg({
-                user_id: parseInt(notificationDetails.chat_id),
+                user_id: parseInt(student.notification_chat_id),
                 message: messageSegments
               });
             } else {
               await napcat.send_group_msg({
-                group_id: parseInt(notificationDetails.chat_id),
+                group_id: parseInt(student.notification_chat_id),
                 message: messageSegments
               });
             }
             console.log(
-              `[Scheduler] Sent notification to ${notificationDetails.chat_type} ${notificationDetails.chat_id}`
+              `[Scheduler] Sent notification to ${student.notification_chat_type} ${student.notification_chat_id}`
             );
           }
         }
@@ -273,8 +297,8 @@ const handleNotifyCommand = async (
   chatId: string,
   sendFn: (message: string) => Promise<void>
 ) => {
-  if (params.length !== 1) {
-    await sendFn(`用法：${command} notify <小时(0-23)>`);
+  if (params.length < 1 || params.length > 2) {
+    await sendFn(`用法：${command} notify <小时(0-23)> [阈值]`);
     return;
   }
 
@@ -284,19 +308,37 @@ const handleNotifyCommand = async (
     return;
   }
 
+  let threshold: number | undefined;
+  if (params.length === 2) {
+    threshold = parseFloat(params[1]);
+    if (isNaN(threshold) || threshold < 0) {
+      await sendFn('阈值必须是非负数字。');
+      return;
+    }
+  }
+
   // Check if user has credentials
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
-    await sendFn(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
+    await sendFn(
+      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`
+    );
     return;
   }
 
   // Set notification
-  scheduler.setNotification(chatType, chatId, qqId, hour);
-  await sendFn(
-    `已设置每日 ${hour} 时在此${chatType === 'private' ? '私聊' : '群聊'}发送账单报告。`
+  scheduler.setNotification(chatType, chatId, qqId, hour, threshold);
+
+  let message = `已设置每日 ${hour} 时在此${chatType === 'private' ? '私聊' : '群聊'}`;
+  if (threshold !== undefined) {
+    message += `当任一余额低于 ${threshold} 元时`;
+  }
+  message += '发送账单报告。';
+
+  await sendFn(message);
+  console.log(
+    `[Notify] Set notification for ${chatType} ${chatId}, QQ ${qqId}, hour ${hour}, threshold ${threshold ?? 'none'}`
   );
-  console.log(`[Notify] Set notification for ${chatType} ${chatId}, QQ ${qqId}, hour ${hour}`);
 };
 
 const handleUnnotifyCommand = async (
@@ -318,15 +360,15 @@ napcat.on('message', async (context: AllHandlers['message']) => {
   const send = async (message: string | SendMessageSegment[]) => {
     await (isPrivateChat
       ? napcat.send_private_msg({
-        user_id: context.sender.user_id,
-        message:
-          typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
-      })
+          user_id: context.sender.user_id,
+          message:
+            typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
+        })
       : napcat.send_group_msg({
-        group_id: context.group_id,
-        message:
-          typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
-      }));
+          group_id: context.group_id,
+          message:
+            typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
+        }));
   };
 
   try {
@@ -348,7 +390,14 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       }
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
-      db.addStudent(qqId, cardId, campus.toUpperCase() as Campus, password, result.name, result.sno);
+      db.addStudent(
+        qqId,
+        cardId,
+        campus.toUpperCase() as Campus,
+        password,
+        result.name,
+        result.sno
+      );
       // Store the access token from login
       db.updateTokens(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
       console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);
@@ -366,7 +415,9 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     } else if (subcommand === 'query' || subcommand === 'bills') {
       const credentials = db.getCredentials(qqId);
       if (!credentials) {
-        await send(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
+        await send(
+          `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`
+        );
         return;
       }
 

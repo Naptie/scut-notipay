@@ -9,7 +9,6 @@ export interface Notification {
   enabled: boolean;
   created_at?: string;
   updated_at?: string;
-  last_sent?: string;
 }
 
 class NotificationScheduler {
@@ -89,6 +88,19 @@ class NotificationScheduler {
     `);
 
     return stmt.all(chatType, chatId) as Notification[];
+  }
+
+  /**
+   * Get notification for a specific user by QQ ID
+   */
+  getNotificationForUser(qqId: string): Notification | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notifications
+      WHERE qq_id = ? AND enabled = 1
+      LIMIT 1
+    `);
+
+    return stmt.get(qqId) as Notification | null;
   }
 
   /**

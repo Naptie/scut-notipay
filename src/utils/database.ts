@@ -91,7 +91,6 @@ class StudentDatabase {
         enabled INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-        last_sent TEXT,
         UNIQUE(chat_type, chat_id, qq_id)
       )
     `;
@@ -243,6 +242,28 @@ class StudentDatabase {
     const stmt = this.db.prepare('DELETE FROM students WHERE qq_id = ?');
     const result = stmt.run(qqId);
     return result.changes > 0;
+  }
+
+  /**
+   * Get all students with their notification settings
+   */
+  getAllStudentsWithNotifications(): Array<StudentPublic & { notification_hour: number | null }> {
+    const stmt = this.db.prepare(`
+      SELECT 
+        s.id, 
+        s.qq_id, 
+        s.card_id, 
+        s.name, 
+        s.student_number, 
+        s.created_at, 
+        s.updated_at, 
+        s.last_login,
+        (SELECT n.hour FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_hour
+      FROM students s
+      ORDER BY s.created_at DESC
+    `);
+
+    return stmt.all() as Array<StudentPublic & { notification_hour: number | null }>;
   }
 
   /**

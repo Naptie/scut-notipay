@@ -10,11 +10,11 @@ const commands = {
   list: () => {
     const notifications = scheduler.getEnabledNotifications();
     console.log(`\nTotal notifications: ${notifications.length}\n`);
-    console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour\tLast Sent');
+    console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour');
     console.log('─'.repeat(100));
     notifications.forEach((n) => {
       console.log(
-        `${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00\t${n.last_sent || 'Never'}`
+        `${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00`
       );
     });
     console.log();
@@ -100,19 +100,6 @@ const commands = {
       console.log('\nNotification deleted.\n');
     } else {
       console.log('\nNo notification found.\n');
-    }
-  },
-
-  due: () => {
-    const due = scheduler.getDueNotifications();
-    console.log(`\nNotifications due now: ${due.length}\n`);
-    if (due.length > 0) {
-      console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour');
-      console.log('─'.repeat(80));
-      due.forEach((n) => {
-        console.log(`${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}`);
-      });
-      console.log();
     }
   },
 

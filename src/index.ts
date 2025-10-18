@@ -39,8 +39,7 @@ const socketClose = createSignallable<void>();
 
 napcat.on('socket.open', () => {
   console.log('[NapCat] Connected.');
-  startNotificationTimer();
-  startDataCollectionTimer();
+  startHourlyTimer();
 });
 
 napcat.on('socket.close', () => {
@@ -66,31 +65,25 @@ const parseMessage = (context: AllHandlers['message']) => {
   return { command, args: segments.slice(1) };
 };
 
-// Notification timer
-let notificationInterval: NodeJS.Timeout | null = null;
+// Combined timer for data collection and notifications
+let hourlyInterval: NodeJS.Timeout | null = null;
 
-// Hourly data collection timer
-let dataCollectionInterval: NodeJS.Timeout | null = null;
-
-const collectHourlyData = async () => {
+const runHourlyTasks = async () => {
   try {
-    // Get all students who have credentials
-    const students = db.getAllStudents();
-    console.log(
-      `[Data Collection] Checking ${students.length} students for hourly data collection`
-    );
+    const currentHour = new Date().getHours();
+    console.log(`[Hourly Tasks] Running for hour: ${currentHour}`);
+
+    // Get all students with their notification settings
+    const students = db.getAllStudentsWithNotifications();
+    console.log(`[Hourly Tasks] Checking ${students.length} students`);
 
     for (const student of students) {
       try {
-        // Check if we should collect data for this user
-        if (!db.shouldCollectBillingData(student.qq_id)) {
-          continue; // Skip if last collection was <1 hour ago
-        }
-
+        // 1. Collect Data
         // Get credentials
         const credentials = db.getCredentials(student.qq_id);
         if (!credentials) {
-          console.log(`[Data Collection] No credentials for QQ ${student.qq_id}, skipping`);
+          console.log(`[Hourly Tasks] No credentials for QQ ${student.qq_id}, skipping`);
           continue;
         }
 
@@ -100,115 +93,75 @@ const collectHourlyData = async () => {
 
         // Record billing history
         db.addBillingHistory(student.qq_id, electric, water, ac, room);
-        console.log(`[Data Collection] Recorded hourly data for ${room}`);
-
-        // Update last login
+        console.log(`[Hourly Tasks] Collected data for ${student.name || student.qq_id} (${room})`);
         db.updateLastLogin(student.qq_id);
-      } catch (error) {
-        console.error(`[Data Collection] Failed to collect data for QQ ${student.qq_id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('[Data Collection] Error during hourly collection:', error);
-  }
-};
 
-const checkAndSendNotifications = async () => {
-  try {
-    const dueNotifications = scheduler.getDueNotifications();
-    if (dueNotifications.length === 0) return;
-    console.log(`[Scheduler] Checking notifications, found ${dueNotifications.length} due`);
+        // 2. Send Notification (if due)
+        if (student.notification_hour !== null && student.notification_hour === currentHour) {
+          console.log(`[Hourly Tasks] Sending notification to ${student.name || student.qq_id}`);
 
-    for (const notification of dueNotifications) {
-      try {
-        // Get credentials
-        const credentials = db.getCredentials(notification.qq_id);
-        if (!credentials) {
-          console.log(`[Scheduler] No credentials for QQ ${notification.qq_id}, skipping`);
-          continue;
-        }
+          // Get 24h change
+          const change24h = db.getBilling24HourChange(student.qq_id);
 
-        // Login and get bills
-        const result = await login(credentials.cardId, credentials.password);
-        const { electric, ac, water, room } = await getBills(result.access_token);
+          // Get history for chart
+          const history = db.getBillingHistory(student.qq_id, 7);
 
-        // Get 24h change (data collection happens separately in hourly timer)
-        const change24h = db.getBilling24HourChange(notification.qq_id);
+          // Generate summary
+          let messageText = `🏠 ${room}\n\n`;
+          messageText +=
+            generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
 
-        // Get history for chart (last 7 days for hourly data)
-        const history = db.getBillingHistory(notification.qq_id, 7);
+          // Build message segments
+          const messageSegments: SendMessageSegment[] = [
+            { type: 'text', data: { text: messageText } }
+          ];
 
-        // Generate summary
-        let messageText = `🏠 ${room}\n\n`;
-        messageText +=
-          generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
+          // Add chart image
+          if (history.length >= 2) {
+            const chartData = history.reverse().map((h) => ({
+              timestamp: h.recorded_at,
+              electric: Math.max(h.electric, 0),
+              water: Math.max(h.water, 0),
+              ac: Math.max(h.ac, 0)
+            }));
 
-        // Build message segments
-        const messageSegments: SendMessageSegment[] = [
-          { type: 'text', data: { text: messageText } }
-        ];
+            const chartBuffer = await generateBillingChart(chartData);
+            if (chartBuffer) {
+              const base64Image = `base64://${chartBuffer.toString('base64')}`;
+              messageSegments.push({ type: 'image', data: { file: base64Image } });
+            }
+          }
 
-        // Add chart image if we have enough data
-        if (history.length >= 2) {
-          const chartData = history.reverse().map((h) => ({
-            timestamp: h.recorded_at,
-            electric: Math.max(h.electric, 0),
-            water: Math.max(h.water, 0),
-            ac: Math.max(h.ac, 0)
-          }));
-
-          const chartBuffer = await generateBillingChart(chartData);
-          if (chartBuffer) {
-            const base64Image = `base64://${chartBuffer.toString('base64')}`;
-            messageSegments.push({ type: 'image', data: { file: base64Image } });
+          // Send message (assuming private chat for now, needs adjustment if group)
+          // We need to get chat_id and chat_type from notifications table
+          const notificationDetails = scheduler.getNotificationForUser(student.qq_id);
+          if (notificationDetails) {
+            if (notificationDetails.chat_type === 'private') {
+              await napcat.send_private_msg({
+                user_id: parseInt(notificationDetails.chat_id),
+                message: messageSegments
+              });
+            } else {
+              await napcat.send_group_msg({
+                group_id: parseInt(notificationDetails.chat_id),
+                message: messageSegments
+              });
+            }
+            console.log(
+              `[Hourly Tasks] Sent notification to ${notificationDetails.chat_type} ${notificationDetails.chat_id}`
+            );
           }
         }
-
-        // Send to appropriate chat
-        if (notification.chat_type === 'private') {
-          await napcat.send_private_msg({
-            user_id: parseInt(notification.chat_id),
-            message: messageSegments
-          });
-        } else {
-          await napcat.send_group_msg({
-            group_id: parseInt(notification.chat_id),
-            message: messageSegments
-          });
-        }
-
-        // Update last sent
-        scheduler.updateLastSent(notification.id!);
-        console.log(
-          `[Scheduler] Sent notification to ${notification.chat_type} ${notification.chat_id} for QQ ${notification.qq_id}`
-        );
       } catch (error) {
-        console.error(`[Scheduler] Failed to send notification ${notification.id}:`, error);
+        console.error(`[Hourly Tasks] Failed to process QQ ${student.qq_id}:`, error);
       }
     }
   } catch (error) {
-    console.error('[Scheduler] Error checking notifications:', error);
+    console.error('[Hourly Tasks] Error during hourly tasks:', error);
   }
 };
 
-const startNotificationTimer = () => {
-  // Check every minute for due notifications
-  notificationInterval = setInterval(checkAndSendNotifications, 60 * 1000);
-  console.log('[Scheduler] Notification timer started');
-
-  // Also check immediately on start
-  checkAndSendNotifications();
-};
-
-const stopNotificationTimer = () => {
-  if (notificationInterval) {
-    clearInterval(notificationInterval);
-    notificationInterval = null;
-    console.log('[Scheduler] Notification timer stopped');
-  }
-};
-
-const startDataCollectionTimer = () => {
+const startHourlyTimer = () => {
   // Calculate delay until next top of the hour
   const now = new Date();
   const minutes = now.getMinutes();
@@ -216,27 +169,30 @@ const startDataCollectionTimer = () => {
   const milliseconds = now.getMilliseconds();
 
   // Time until next hour (in milliseconds)
-  const delayUntilNextHour = (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
+  const delayUntilNextHour =
+    (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
 
   console.log(
-    `[Data Collection] Will start hourly collection in ${Math.round(delayUntilNextHour / 1000 / 60)} minutes (at next hour)`
+    `[Hourly Tasks] Will start in ${Math.round(
+      delayUntilNextHour / 1000 / 60
+    )} minutes (at next hour)`
   );
 
-  // Schedule first collection at the top of the next hour
+  // Schedule first run at the top of the next hour
   setTimeout(() => {
-    collectHourlyData();
+    runHourlyTasks();
 
-    // Then collect every hour on the hour
-    dataCollectionInterval = setInterval(collectHourlyData, 60 * 60 * 1000);
-    console.log('[Data Collection] Hourly collection timer started (runs every hour on the hour)');
+    // Then run every hour on the hour
+    hourlyInterval = setInterval(runHourlyTasks, 60 * 60 * 1000);
+    console.log('[Hourly Tasks] Timer started (runs every hour on the hour)');
   }, delayUntilNextHour);
 };
 
-const stopDataCollectionTimer = () => {
-  if (dataCollectionInterval) {
-    clearInterval(dataCollectionInterval);
-    dataCollectionInterval = null;
-    console.log('[Data Collection] Hourly collection timer stopped');
+const stopHourlyTimer = () => {
+  if (hourlyInterval) {
+    clearInterval(hourlyInterval);
+    hourlyInterval = null;
+    console.log('[Hourly Tasks] Timer stopped');
   }
 };
 
@@ -398,8 +354,7 @@ process.on('SIGINT', async () => {
   shutdownInitiated = true;
   console.log('\nGracefully shutting down...');
 
-  stopNotificationTimer();
-  stopDataCollectionTimer();
+  stopHourlyTimer();
 
   napcat.disconnect();
 

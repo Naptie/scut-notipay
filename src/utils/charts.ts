@@ -55,7 +55,7 @@ export const generateBillingChart = async (
           borderColor: 'rgb(255, 99, 132)',
           backgroundColor: 'rgba(255, 99, 132, 0.1)',
           borderWidth: 2,
-          tension: 0.4,
+          tension: 0,
           fill: true
         },
         {
@@ -64,7 +64,7 @@ export const generateBillingChart = async (
           borderColor: 'rgb(54, 162, 235)',
           backgroundColor: 'rgba(54, 162, 235, 0.1)',
           borderWidth: 2,
-          tension: 0.4,
+          tension: 0,
           fill: true
         },
         {
@@ -73,7 +73,7 @@ export const generateBillingChart = async (
           borderColor: 'rgb(75, 192, 192)',
           backgroundColor: 'rgba(75, 192, 192, 0.1)',
           borderWidth: 2,
-          tension: 0.4,
+          tension: 0,
           fill: true
         }
       ]
@@ -108,8 +108,8 @@ export const generateBillingChart = async (
             text: '时间'
           },
           ticks: {
-            maxRotation: 45,
-            minRotation: 45
+            maxRotation: 30,
+            minRotation: 90
           }
         }
       }

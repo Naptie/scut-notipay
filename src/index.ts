@@ -7,6 +7,14 @@ import { db, scheduler } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
 
 /**
+ * Store an access token for a user
+ */
+const storeToken = (qqId: string, token: string, expiresIn: number) => {
+  db.updateAccessToken(qqId, token, expiresIn);
+  console.log(`[Token] Stored token for QQ ${qqId}, expires in ${expiresIn}s`);
+}
+
+/**
  * Get a valid access token for a user
  * Uses cached token if available and valid, otherwise obtains a new one
  */
@@ -14,12 +22,10 @@ const getValidToken = async (qqId: string): Promise<string> => {
   // Try to get stored token
   const storedToken = db.getAccessToken(qqId);
   if (storedToken) {
-    console.log(`[Token] Using cached token for QQ ${qqId}`);
     return storedToken;
   }
 
   // No valid stored token, need to login
-  console.log(`[Token] No valid cached token, logging in for QQ ${qqId}`);
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
     throw new Error('No credentials found for user');
@@ -28,8 +34,7 @@ const getValidToken = async (qqId: string): Promise<string> => {
   const result = await login(credentials.cardId, credentials.password);
 
   // Store the new token
-  db.updateAccessToken(qqId, result.access_token, result.expires_in);
-  console.log(`[Token] Stored new token for QQ ${qqId}, expires in ${result.expires_in}s`);
+  storeToken(qqId, result.access_token, result.expires_in);
 
   return result.access_token;
 };
@@ -45,7 +50,6 @@ const getBillsWithTokenRefresh = async (qqId: string) => {
   } catch {
     // If getBills failed, the token might be invalid despite not being expired
     // Clear the token and try once more with a fresh login
-    console.log(`[Token] Initial attempt failed, clearing token and retrying for QQ ${qqId}`);
     db.clearAccessToken(qqId);
 
     const credentials = db.getCredentials(qqId);
@@ -54,7 +58,7 @@ const getBillsWithTokenRefresh = async (qqId: string) => {
     }
 
     const result = await login(credentials.cardId, credentials.password);
-    db.updateAccessToken(qqId, result.access_token, result.expires_in);
+    storeToken(qqId, result.access_token, result.expires_in);
 
     // Retry with fresh token
     return await getBills(result.access_token);

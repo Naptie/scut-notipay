@@ -153,10 +153,11 @@ const runHourlyTasks = async () => {
     console.log(`[Scheduler] Running for hour: ${currentHour}`);
 
     // Get all students with their notification settings
-    const students = db.getAllStudentsWithNotifications();
+    const students = db.getAllStudents();
     console.log(`[Scheduler] Checking ${students.length} students`);
 
     for (const student of students) {
+      console.log(student);
       try {
         // 1. Collect Data
         // Get credentials
@@ -174,16 +175,15 @@ const runHourlyTasks = async () => {
         console.log(`[Scheduler] Collected data for ${student.name || student.qq_id} (${room})`);
         db.updateLastLogin(student.qq_id);
 
-        // 2. Send Notification (if due)
-        if (student.notification_hour !== null && student.notification_hour === currentHour) {
+        const notifications = scheduler.getNotificationsAtHourForUser(student.qq_id, currentHour);
+
+        // 2. Send Notification
+        for (const notification of notifications) {
           // Check if threshold is set and if any balance is below it
           let shouldSendNotification = true;
-          if (
-            student.notification_threshold !== null &&
-            student.notification_threshold !== undefined
-          ) {
+          if (notification.threshold !== null && notification.threshold !== undefined) {
             // Only send if any balance drops below the threshold
-            const threshold = student.notification_threshold;
+            const threshold = notification.threshold;
             shouldSendNotification =
               (electric >= -10 && electric < threshold) ||
               (water >= -10 && water < threshold) ||
@@ -230,20 +230,20 @@ const runHourlyTasks = async () => {
           }
 
           // Send message
-          if (student.notification_chat_type && student.notification_chat_id) {
-            if (student.notification_chat_type === 'private') {
+          if (notification.chat_type && notification.chat_id) {
+            if (notification.chat_type === 'private') {
               await napcat.send_private_msg({
-                user_id: parseInt(student.notification_chat_id),
+                user_id: parseInt(notification.chat_id),
                 message: messageSegments
               });
             } else {
               await napcat.send_group_msg({
-                group_id: parseInt(student.notification_chat_id),
+                group_id: parseInt(notification.chat_id),
                 message: messageSegments
               });
             }
             console.log(
-              `[Scheduler] Sent notification to ${student.notification_chat_type} ${student.notification_chat_id}`
+              `[Scheduler] Sent notification to ${notification.chat_type} ${notification.chat_id}`
             );
           }
         }
@@ -298,7 +298,7 @@ const handleNotifyCommand = async (
   sendFn: (message: string) => Promise<void>
 ) => {
   if (params.length < 1 || params.length > 2) {
-    await sendFn(`用法：${command} notify <小时(0-23)> [阈值]`);
+    await sendFn(`用法：${command} notify <小时 (0-23)> [阈值]`);
     return;
   }
 
@@ -321,7 +321,7 @@ const handleNotifyCommand = async (
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
     await sendFn(
-      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`
+      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>`
     );
     return;
   }

@@ -30,7 +30,7 @@ export interface Student {
   last_login?: string;
 }
 
-export type Campus = typeof CAMPUSES[number];
+export type Campus = (typeof CAMPUSES)[number];
 
 export interface StudentPublic {
   id: number;
@@ -176,8 +176,8 @@ class StudentDatabase {
   }
 
   /**
- * Get student's campus by QQ ID
- */
+   * Get student's campus by QQ ID
+   */
   getCampus(qqId: string): Campus | null {
     const stmt = this.db.prepare(`
       SELECT campus
@@ -242,14 +242,20 @@ class StudentDatabase {
     `);
     const result = stmt.get(qqId) as
       | {
-        access_token: string | null;
-        tgc: string | null;
-        loc_session: string | null;
-        token_expires_at: string | null
-      }
+          access_token: string | null;
+          tgc: string | null;
+          loc_session: string | null;
+          token_expires_at: string | null;
+        }
       | undefined;
 
-    if (!result || !result.access_token || !result.tgc || !result.loc_session || !result.token_expires_at) {
+    if (
+      !result ||
+      !result.access_token ||
+      !result.tgc ||
+      !result.loc_session ||
+      !result.token_expires_at
+    ) {
       return null;
     }
 
@@ -268,7 +274,13 @@ class StudentDatabase {
   /**
    * Update tokens and expiration time for a user
    */
-  updateTokens(qqId: string, accessToken: string, TGC: string, locSession: string, expiresIn: number): void {
+  updateTokens(
+    qqId: string,
+    accessToken: string,
+    TGC: string,
+    locSession: string,
+    expiresIn: number
+  ): void {
     // Calculate expiration time (expiresIn is in seconds)
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
@@ -337,42 +349,6 @@ class StudentDatabase {
     const stmt = this.db.prepare('DELETE FROM students WHERE qq_id = ?');
     const result = stmt.run(qqId);
     return result.changes > 0;
-  }
-
-  /**
-   * Get all students with their notification settings
-   */
-  getAllStudentsWithNotifications(): Array<StudentPublic & { 
-    notification_hour: number | null; 
-    notification_threshold: number | null;
-    notification_chat_type: 'private' | 'group' | null;
-    notification_chat_id: string | null;
-  }> {
-    const stmt = this.db.prepare(`
-      SELECT 
-        s.id, 
-        s.qq_id, 
-        s.card_id, 
-        s.campus,
-        s.name, 
-        s.student_number, 
-        s.created_at, 
-        s.updated_at, 
-        s.last_login,
-        (SELECT n.hour FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_hour,
-        (SELECT n.threshold FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_threshold,
-        (SELECT n.chat_type FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_chat_type,
-        (SELECT n.chat_id FROM notifications n WHERE n.qq_id = s.qq_id LIMIT 1) as notification_chat_id
-      FROM students s
-      ORDER BY s.created_at DESC
-    `);
-
-    return stmt.all() as Array<StudentPublic & { 
-      notification_hour: number | null; 
-      notification_threshold: number | null;
-      notification_chat_type: 'private' | 'group' | null;
-      notification_chat_id: string | null;
-    }>;
   }
 
   /**

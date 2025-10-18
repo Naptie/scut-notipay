@@ -83,16 +83,15 @@ class NotificationScheduler {
   }
 
   /**
-   * Get notification for a specific user by QQ ID
+   * Get notifications for a specific user by QQ ID
    */
-  getNotificationForUser(qqId: string): Notification | null {
+  getNotificationsAtHourForUser(qqId: string, hour: number): Notification[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notifications
-      WHERE qq_id = ?
-      LIMIT 1
+      WHERE qq_id = ? AND hour = ?
     `);
 
-    return stmt.get(qqId) as Notification | null;
+    return stmt.all(qqId, hour) as Notification[];
   }
 
   /**

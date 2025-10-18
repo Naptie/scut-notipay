@@ -327,7 +327,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
           messageSegments.push({ type: 'image', data: { file: base64Image } });
         }
       } else {
-        messageSegments[0].data.text += '\n\n💡 需要至少 2 条历史记录才能显示趋势图';
+        messageSegments[0].data.text += '\n💡 需要至少 2 条历史记录才能显示趋势图';
       }
 
       await send(messageSegments);

@@ -105,7 +105,7 @@ export const generateBillingChart = async (
           },
           ticks: {
             maxRotation: 90,
-            minRotation: 30
+            minRotation: 45
           }
         }
       }

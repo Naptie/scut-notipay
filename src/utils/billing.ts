@@ -1,4 +1,4 @@
-import { BASE } from './constants.js';
+import { BASE, NORETRY_ERROR_PREFIX } from './constants.js';
 import config from '../../config.json' with { type: 'json' };
 import type { Campus } from './database.js';
 
@@ -25,20 +25,23 @@ export const getBills = async (
 
   for (let attempt = 0; attempt <= retryCount; attempt++) {
     try {
-      if (campus === 'GZIC') {
-        const res = await getBillsGZIC(token);
-        return res;
-      } else {
-        const res = await getBillsDXC(token, TGC, locSession);
-        return res;
-      }
+      return await (campus === 'GZIC' ? getBillsGZIC(token) : getBillsDXC(token, TGC, locSession));
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      if (lastError.message.startsWith(NORETRY_ERROR_PREFIX)) {
+        console.error(
+          `[Billing] Non-retriable error encountered: ${lastError.message.replace(
+            NORETRY_ERROR_PREFIX,
+            ''
+          )}`
+        );
+        break;
+      }
+      lastError.message = lastError.message.replace(NORETRY_ERROR_PREFIX, '');
 
       if (attempt < retryCount) {
         console.debug(`[Billing] Attempt ${attempt + 1} failed: ${lastError.message}. Retrying...`);
-        // Optional: Add a small delay between retries
-        await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
       } else {
         console.error(`[Billing] All ${retryCount + 1} attempts failed.`);
       }
@@ -66,7 +69,8 @@ const getBillsGZIC = async (token: string) => {
   // Check if any response is not ok
   const failedResponse = responses.find((r) => !r.ok);
   if (failedResponse) {
-    throw new Error(`HTTP ${failedResponse.status}: ${failedResponse.statusText}`);
+    const retryIndicator = failedResponse.status === 401 ? NORETRY_ERROR_PREFIX : '';
+    throw new Error(retryIndicator + `HTTP ${failedResponse.status}: ${failedResponse.statusText}`);
   }
 
   const data = (await Promise.all(responses.map((r) => r.json()))) as BillResponse[];
@@ -196,7 +200,8 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     }
   );
   if (!userInfoResponse.ok) {
-    throw new Error(`Get userInfo failed: HTTP ${userInfoResponse.status}`);
+    const retryIndicator = userInfoResponse.status === 401 ? NORETRY_ERROR_PREFIX : '';
+    throw new Error(retryIndicator + `Get userInfo failed: HTTP ${userInfoResponse.status}`);
   }
   const userInfo = await userInfoResponse.json();
   if (userInfo.statusCode !== '200') {
@@ -215,7 +220,10 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     }
   );
   if (!ammeterBalanceResponse.ok) {
-    throw new Error(`Get ammeterBalanceResponse failed: HTTP ${ammeterBalanceResponse.status}`);
+    const retryIndicator = ammeterBalanceResponse.status === 401 ? NORETRY_ERROR_PREFIX : '';
+    throw new Error(
+      retryIndicator + `Get ammeterBalanceResponse failed: HTTP ${ammeterBalanceResponse.status}`
+    );
   }
   const electricData = await ammeterBalanceResponse.json();
   if (electricData.statusCode !== '200') {
@@ -236,7 +244,10 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     }
   );
   if (!waterBalanceResponse.ok) {
-    throw new Error(`Get waterBalance failed: HTTP ${waterBalanceResponse.status}`);
+    const retryIndicator = waterBalanceResponse.status === 401 ? NORETRY_ERROR_PREFIX : '';
+    throw new Error(
+      retryIndicator + `Get waterBalance failed: HTTP ${waterBalanceResponse.status}`
+    );
   }
   const waterData = await waterBalanceResponse.json();
   if (waterData.statusCode !== '200') {

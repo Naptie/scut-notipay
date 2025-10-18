@@ -221,7 +221,7 @@ const runHourlyTasks = async () => {
               ac: Math.max(h.ac, 0)
             }));
 
-            const chartBuffer = await generateBillingChart(chartData);
+            const chartBuffer = await generateBillingChart(chartData, room);
             if (chartBuffer) {
               const base64Image = `base64://${chartBuffer.toString('base64')}`;
               messageSegments.push({ type: 'image', data: { file: base64Image } });
@@ -446,7 +446,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
           ac: Math.max(h.ac, 0)
         }));
 
-        const chartBuffer = await generateBillingChart(chartData);
+        const chartBuffer = await generateBillingChart(chartData, room);
         if (chartBuffer) {
           const base64Image = `base64://${chartBuffer.toString('base64')}`;
           messageSegments.push({ type: 'image', data: { file: base64Image } });

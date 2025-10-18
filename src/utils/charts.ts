@@ -15,7 +15,10 @@ export interface ChartData {
 /**
  * Generate a PNG chart image for billing data
  */
-export const generateBillingChart = async (data: ChartData[]): Promise<Buffer | null> => {
+export const generateBillingChart = async (
+  data: ChartData[],
+  room: string
+): Promise<Buffer | null> => {
   if (data.length < 2) {
     return null;
   }
@@ -80,7 +83,7 @@ export const generateBillingChart = async (data: ChartData[]): Promise<Buffer | 
       plugins: {
         title: {
           display: true,
-          text: '账单趋势图',
+          text: `${room} 账单`,
           font: {
             size: 18,
             weight: 'bold'

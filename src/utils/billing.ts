@@ -36,9 +36,11 @@ export const getBills = async (
       lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < retryCount) {
-        console.log(`[Billing] Attempt ${attempt + 1} failed: ${lastError.message}. Retrying...`);
+        console.debug(`[Billing] Attempt ${attempt + 1} failed: ${lastError.message}. Retrying...`);
         // Optional: Add a small delay between retries
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+      } else {
+        console.error(`[Billing] All ${retryCount + 1} attempts failed.`);
       }
     }
   }

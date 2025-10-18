@@ -109,7 +109,7 @@ const runHourlyTasks = async () => {
           // Generate summary
           let messageText = `🏠 ${room}\n\n`;
           messageText +=
-            generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
+            generateBillingSummary({ electric, water, ac }, change24h || undefined);
 
           // Build message segments
           const messageSegments: SendMessageSegment[] = [
@@ -307,7 +307,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
 
       // Generate summary
       let messageText = `🏠 ${room}\n\n`;
-      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined) + '\n';
+      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
 
       // Build message segments
       const messageSegments: SendMessageSegment[] = [{ type: 'text', data: { text: messageText } }];

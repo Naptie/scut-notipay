@@ -9,6 +9,7 @@
   "napcatWs": "ws://127.0.0.1:3001",
   "napcatToken": "your_napcat_token",
   "encryptionKey": "your_encryption_key",
-  "commandNames": ["scut-notipay", "snp"]
+  "commandNames": ["scut-notipay", "snp"],
+  "billingRetryCount": 3
 }
 ```

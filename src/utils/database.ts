@@ -98,7 +98,6 @@ class StudentDatabase {
         qq_id TEXT NOT NULL,
         hour INTEGER NOT NULL CHECK(hour >= 0 AND hour <= 23),
         threshold REAL,
-        enabled INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
         UNIQUE(chat_type, chat_id, qq_id)
@@ -111,7 +110,6 @@ class StudentDatabase {
       CREATE INDEX IF NOT EXISTS idx_billing_qq_id ON billing_history(qq_id);
       CREATE INDEX IF NOT EXISTS idx_billing_recorded_at ON billing_history(recorded_at);
       CREATE INDEX IF NOT EXISTS idx_chat ON notifications(chat_type, chat_id);
-      CREATE INDEX IF NOT EXISTS idx_enabled ON notifications(enabled);
     `;
 
     this.db.exec(createTableSQL);

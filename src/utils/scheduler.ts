@@ -7,7 +7,6 @@ export interface Notification {
   qq_id: string;
   hour: number;
   threshold?: number | null;
-  enabled: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -38,12 +37,11 @@ class NotificationScheduler {
     }
 
     const stmt = this.db.prepare(`
-      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, threshold, enabled)
-      VALUES (?, ?, ?, ?, ?, 1)
+      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, threshold)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(chat_type, chat_id, qq_id) DO UPDATE SET
         hour = excluded.hour,
         threshold = excluded.threshold,
-        enabled = 1,
         updated_at = datetime('now', 'localtime')
     `);
 
@@ -73,25 +71,12 @@ class NotificationScheduler {
   }
 
   /**
-   * Get all enabled notifications
-   */
-  getEnabledNotifications(): Notification[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM notifications
-      WHERE enabled = 1
-      ORDER BY hour
-    `);
-
-    return stmt.all() as Notification[];
-  }
-
-  /**
    * Get all notifications for a specific chat
    */
   getChatNotifications(chatType: 'private' | 'group', chatId: string): Notification[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notifications
-      WHERE chat_type = ? AND chat_id = ? AND enabled = 1
+      WHERE chat_type = ? AND chat_id = ?
     `);
 
     return stmt.all(chatType, chatId) as Notification[];
@@ -103,25 +88,11 @@ class NotificationScheduler {
   getNotificationForUser(qqId: string): Notification | null {
     const stmt = this.db.prepare(`
       SELECT * FROM notifications
-      WHERE qq_id = ? AND enabled = 1
+      WHERE qq_id = ?
       LIMIT 1
     `);
 
     return stmt.get(qqId) as Notification | null;
-  }
-
-  /**
-   * Disable a notification
-   */
-  disableNotification(chatType: 'private' | 'group', chatId: string, qqId: string): boolean {
-    const stmt = this.db.prepare(`
-      UPDATE notifications
-      SET enabled = 0, updated_at = datetime('now', 'localtime')
-      WHERE chat_type = ? AND chat_id = ? AND qq_id = ?
-    `);
-
-    const result = stmt.run(chatType, chatId, qqId);
-    return result.changes > 0;
   }
 
   /**
@@ -153,28 +124,16 @@ class NotificationScheduler {
   /**
    * Get notifications that should be sent now
    */
-  getDueNotifications(): Notification[] {
-    const now = new Date();
-    const currentHour = now.getHours();
-
-    const stmt = this.db.prepare(`
-      SELECT * FROM notifications
-      WHERE enabled = 1
-        AND hour = ?
-        AND (
-          last_sent IS NULL
-          OR date(last_sent) < date('now', 'localtime')
-        )
-    `);
-
-    return stmt.all(currentHour) as Notification[];
+  getAllNotifications(): Notification[] {
+    const stmt = this.db.prepare('SELECT * FROM notifications');
+    return stmt.all() as Notification[];
   }
 
   /**
    * Get notification count
    */
   getNotificationCount(): number {
-    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM notifications WHERE enabled = 1');
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM notifications');
     const result = stmt.get() as { count: number };
     return result.count;
   }

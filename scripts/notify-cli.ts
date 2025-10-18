@@ -8,20 +8,23 @@ import { scheduler, db } from '../src/utils/database.js';
 
 const commands = {
   list: () => {
-    const notifications = scheduler.getEnabledNotifications();
+    const notifications = scheduler.getAllNotifications();
     console.log(`\nTotal notifications: ${notifications.length}\n`);
     console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour\tThreshold');
     console.log('─'.repeat(100));
     notifications.forEach((n) => {
-      const thresholdStr = n.threshold !== null && n.threshold !== undefined ? n.threshold.toString() : 'none';
-      console.log(`${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00\t${thresholdStr}`);
+      const thresholdStr =
+        n.threshold !== null && n.threshold !== undefined ? n.threshold.toString() : 'none';
+      console.log(
+        `${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00\t${thresholdStr}`
+      );
     });
     console.log();
   },
 
   count: () => {
     const count = scheduler.getNotificationCount();
-    console.log(`\nTotal enabled notifications: ${count}\n`);
+    console.log(`\nTotal notifications: ${count}\n`);
   },
 
   get: (chatType: string, chatId: string, qqId: string) => {
@@ -57,7 +60,7 @@ const commands = {
       console.error('hour must be between 0 and 23');
       return;
     }
-    
+
     let thresholdNum: number | undefined;
     if (threshold !== undefined) {
       thresholdNum = parseFloat(threshold);
@@ -66,7 +69,7 @@ const commands = {
         return;
       }
     }
-    
+
     const notification = scheduler.setNotification(
       chatType as 'private' | 'group',
       chatId,
@@ -77,23 +80,6 @@ const commands = {
     console.log('\nNotification added/updated:');
     console.log(JSON.stringify(notification, null, 2));
     console.log();
-  },
-
-  disable: (chatType: string, chatId: string, qqId: string) => {
-    if (!chatType || !chatId || !qqId) {
-      console.error('Usage: disable <chat_type> <chat_id> <qq_id>');
-      return;
-    }
-    if (chatType !== 'private' && chatType !== 'group') {
-      console.error('chat_type must be "private" or "group"');
-      return;
-    }
-    const disabled = scheduler.disableNotification(chatType as 'private' | 'group', chatId, qqId);
-    if (disabled) {
-      console.log('\nNotification disabled.\n');
-    } else {
-      console.log('\nNo notification found.\n');
-    }
   },
 
   delete: (chatType: string, chatId: string, qqId: string) => {
@@ -124,12 +110,11 @@ const commands = {
 Notification Management CLI
 
 Commands:
-  list                                    List all enabled notifications
+  list                                    List all notifications
   count                                   Show total notification count
   get <chat_type> <chat_id> <qq_id>      Get notification details
   add <chat_type> <chat_id> <qq_id>      Add/update notification
       <hour> [threshold]
-  disable <chat_type> <chat_id> <qq_id>  Disable notification
   delete <chat_type> <chat_id> <qq_id>   Delete notification
   due                                     Show notifications due now
   backup [path]                          Backup database

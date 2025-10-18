@@ -397,37 +397,41 @@ class StudentDatabase {
     water: number;
     ac: number;
   } | null {
-    const stmt = this.db.prepare(`
-      SELECT 
-        (SELECT electric FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_electric,
-        (SELECT water FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_water,
-        (SELECT ac FROM billing_history WHERE qq_id = ? ORDER BY recorded_at DESC LIMIT 1) as current_ac,
-        (SELECT electric FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_electric,
-        (SELECT water FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_water,
-        (SELECT ac FROM billing_history WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day') ORDER BY recorded_at DESC LIMIT 1) as prev_ac
-    `);
-
-    const result = stmt.get(qqId, qqId, qqId, qqId, qqId, qqId) as {
-      current_electric: number | null;
-      current_water: number | null;
-      current_ac: number | null;
-      prev_electric: number | null;
-      prev_water: number | null;
-      prev_ac: number | null;
-    };
-
-    if (
-      result.current_electric === null ||
-      result.current_water === null ||
-      result.current_ac === null
-    ) {
+    // Get the most recent record
+    const currentRecord = this.getLatestBilling(qqId);
+    if (!currentRecord) {
       return null;
     }
 
+    // Get the record from 24 hours ago or earlier
+    const prevStmt = this.db.prepare(`
+      SELECT * FROM billing_history
+      WHERE qq_id = ? AND datetime(recorded_at) <= datetime('now', 'localtime', '-1 day')
+      ORDER BY recorded_at DESC
+      LIMIT 1
+    `);
+    let prevRecord = prevStmt.get(qqId) as typeof currentRecord | null;
+
+    // If no record from 24h ago, fall back to the very first record
+    if (!prevRecord) {
+      const firstStmt = this.db.prepare(`
+        SELECT * FROM billing_history
+        WHERE qq_id = ?
+        ORDER BY recorded_at ASC
+        LIMIT 1
+      `);
+      prevRecord = firstStmt.get(qqId) as typeof currentRecord | null;
+    }
+
+    // If there's still no previous record (i.e., only one record exists), change is 0
+    const prevElectric = prevRecord ? prevRecord.electric : currentRecord.electric;
+    const prevWater = prevRecord ? prevRecord.water : currentRecord.water;
+    const prevAc = prevRecord ? prevRecord.ac : currentRecord.ac;
+
     return {
-      electric: result.current_electric - (result.prev_electric || result.current_electric),
-      water: result.current_water - (result.prev_water || result.current_water),
-      ac: result.current_ac - (result.prev_ac || result.current_ac)
+      electric: currentRecord.electric - prevElectric,
+      water: currentRecord.water - prevWater,
+      ac: currentRecord.ac - prevAc
     };
   }
 

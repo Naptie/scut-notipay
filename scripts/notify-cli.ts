@@ -13,9 +13,7 @@ const commands = {
     console.log('ID\tType\tChat ID\t\tQQ ID\t\tHour');
     console.log('─'.repeat(100));
     notifications.forEach((n) => {
-      console.log(
-        `${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00`
-      );
+      console.log(`${n.id}\t${n.chat_type}\t${n.chat_id}\t${n.qq_id}\t${n.hour}:00`);
     });
     console.log();
   },

@@ -169,8 +169,7 @@ const startHourlyTimer = () => {
   const milliseconds = now.getMilliseconds();
 
   // Time until next hour (in milliseconds)
-  const delayUntilNextHour =
-    (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
+  const delayUntilNextHour = (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
 
   console.log(
     `[Hourly Tasks] Will start in ${Math.round(

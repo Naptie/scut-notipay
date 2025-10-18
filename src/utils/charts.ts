@@ -150,16 +150,16 @@ export const generateBillingSummary = (
 ): string => {
   let output = '📊 当前余额\n';
   output += '─'.repeat(15) + '\n';
-  output += `⚡ 电费：${current.electric.toFixed(2)} 元\n`;
-  output += `💧 水费：${current.water.toFixed(2)} 元\n`;
-  output += `❄️  空调费：${current.ac.toFixed(2)} 元\n`;
+  output += `⚡ 电费：\t${current.electric.toFixed(2)} 元\n`;
+  output += `💧 水费：\t${current.water.toFixed(2)} 元\n`;
+  output += `❄️ 空调费：\t${current.ac.toFixed(2)} 元\n`;
 
   if (change24h) {
     output += '\n📈 24小时变化\n';
     output += '─'.repeat(15) + '\n';
-    output += `⚡ 电费：${change24h.electric >= 0 ? '+' : '-'}${Math.abs(change24h.electric).toFixed(2)} 元\n`;
-    output += `💧 水费：${change24h.water >= 0 ? '+' : '-'}${Math.abs(change24h.water).toFixed(2)} 元\n`;
-    output += `❄️  空调费：${change24h.ac >= 0 ? '+' : '-'}${Math.abs(change24h.ac).toFixed(2)} 元\n`;
+    output += `⚡ 电费：\t${change24h.electric > 0 ? '+' : ''}${change24h.electric.toFixed(2)} 元\n`;
+    output += `💧 水费：\t${change24h.water > 0 ? '+' : ''}${change24h.water.toFixed(2)} 元\n`;
+    output += `❄️ 空调费：\t${change24h.ac > 0 ? '+' : ''}${change24h.ac.toFixed(2)} 元\n`;
   }
 
   return output;

@@ -1,8 +1,8 @@
-import { BASE } from './constants.js';
+import { CARD_BASE } from './constants.js';
 // import Tesseract from 'tesseract.js';
 
 export const obtainChallenge = async () => {
-  const response = await fetch(`${BASE}/berserker-auth/oauth/captcha?synAccessSource=h5`);
+  const response = await fetch(`${CARD_BASE}/berserker-auth/oauth/captcha?synAccessSource=h5`);
   const { key, image } = (await response.json()) as { key: string; image: string };
   return { key, image };
 };

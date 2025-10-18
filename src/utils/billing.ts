@@ -1,4 +1,4 @@
-import { BASE, NORETRY_ERROR_PREFIX } from './constants.js';
+import { CARD_BASE, DFYC_BASE, NORETRY_ERROR_PREFIX } from './constants.js';
 import config from '../../config.json' with { type: 'json' };
 import type { Campus } from './database.js';
 
@@ -57,12 +57,15 @@ const getBillsGZIC = async (token: string) => {
 
   const responses = await Promise.all(
     feeitemids.map((id) =>
-      fetch(`${BASE}/charge/feeitem/getThirdDataByFeeItemId?feeitemid=${id}&synAccessSource=h5`, {
-        method: 'GET',
-        headers: {
-          'Synjones-Auth': `bearer ${token}`
+      fetch(
+        `${CARD_BASE}/charge/feeitem/getThirdDataByFeeItemId?feeitemid=${id}&synAccessSource=h5`,
+        {
+          method: 'GET',
+          headers: {
+            'Synjones-Auth': `bearer ${token}`
+          }
         }
-      })
+      )
     )
   );
 
@@ -102,7 +105,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
 
   // redirect
   const redirectResponse = await fetch(
-    `https://ecardwxnew.scut.edu.cn/berserker-base/redirect?appId=360&loginFrom=h5&synAccessSource=h5&synjones-auth=${token}&type=app`,
+    `${CARD_BASE}/berserker-base/redirect?appId=360&loginFrom=h5&synAccessSource=h5&synjones-auth=${token}&type=app`,
     {
       method: 'GET',
       redirect: 'manual', // Don't auto-follow redirects
@@ -190,15 +193,12 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   // *** All auth completed ***
 
   // userInfo
-  const userInfoResponse = await fetch(
-    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/find/userinfo',
-    {
-      method: 'GET',
-      headers: {
-        Cookie: `JSESSIONID=${jsessionid}`
-      }
+  const userInfoResponse = await fetch(`${DFYC_BASE}/sdms-weixin-pay-sp/service/find/userinfo`, {
+    method: 'GET',
+    headers: {
+      Cookie: `JSESSIONID=${jsessionid}`
     }
-  );
+  });
   if (!userInfoResponse.ok) {
     const retryIndicator = userInfoResponse.status === 401 ? NORETRY_ERROR_PREFIX : '';
     throw new Error(retryIndicator + `Get userInfo failed: HTTP ${userInfoResponse.status}`);
@@ -211,7 +211,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
 
   // ammeterBalance
   const ammeterBalanceResponse = await fetch(
-    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/ammeterBalance?type=1',
+    `${DFYC_BASE}/sdms-weixin-pay-sp/service/ammeterBalance?type=1`,
     {
       method: 'GET',
       headers: {
@@ -235,7 +235,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
 
   // waterBalance
   const waterBalanceResponse = await fetch(
-    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/waterBalance?type=3&systemType=1',
+    `${DFYC_BASE}/sdms-weixin-pay-sp/service/waterBalance?type=3&systemType=1`,
     {
       method: 'GET',
       headers: {

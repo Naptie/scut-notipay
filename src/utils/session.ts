@@ -1,4 +1,4 @@
-import { BASE } from './constants.js';
+import { CARD_BASE } from './constants.js';
 import { encryptPassword } from './keyboard.js';
 
 export const obtainToken = async (username: string, password: string) => {
@@ -14,7 +14,7 @@ export const obtainToken = async (username: string, password: string) => {
   formData.append('device_token', 'h5');
   formData.append('synAccessSource', 'h5');
 
-  const response = await fetch(`${BASE}/berserker-auth/oauth/token`, {
+  const response = await fetch(`${CARD_BASE}/berserker-auth/oauth/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',

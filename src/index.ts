@@ -6,7 +6,7 @@ import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/presentation.js';
-import { CAMPUSES } from './utils/constants.js';
+import { APP_NAME, CAMPUSES, GITHUB_LINK } from './utils/constants.js';
 
 let commitHash: string;
 try {
@@ -374,7 +374,7 @@ const handleHelp = async (
   sendFn: (message: string | SendMessageSegment[]) => Promise<void>
 ) => {
   const message =
-    '[scut-notify] 可用命令：\n\n' +
+    `[${APP_NAME}] 可用命令：\n\n` +
     '1. 绑定账号（私聊）：\n' +
     `${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>\n` +
     `   例：${command} bind 123456 123456 GZIC\n\n` +
@@ -391,7 +391,8 @@ const handleHelp = async (
     '5. 取消定时通知（私聊或群聊）：\n' +
     `${command} unnotify\n\n` +
     '如有疑问，请联系管理员。\n' +
-    `当前 commit：${commitHash}`;
+    `当前 commit：${commitHash}\n` +
+    `GitHub 仓库：${GITHUB_LINK}`;
   await sendFn([{ type: 'node', data: { content: [{ type: 'text', data: { text: message } }] } }]);
 };
 

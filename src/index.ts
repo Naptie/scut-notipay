@@ -5,6 +5,7 @@ import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
+import { CAMPUSES } from './utils/constants.js';
 
 /**
  * Store an access token for a user
@@ -286,7 +287,7 @@ const handleNotifyCommand = async (
   // Check if user has credentials
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
-    await sendFn(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码>`);
+    await sendFn(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
     return;
   }
 
@@ -336,14 +337,18 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     const chatId = (isPrivateChat ? context.sender.user_id : context.group_id).toString();
 
     if (subcommand === 'bind' && isPrivateChat) {
-      if (params.length !== 2) {
+      if (params.length !== 3) {
         await send(`用法：${command} ${subcommand} <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
         return;
       }
       const [cardId, password, campus] = params;
+      if (CAMPUSES.includes(campus.toUpperCase() as Campus) === false) {
+        await send('校区必须是 GZIC 或 DXC。');
+        return;
+      }
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
-      db.addStudent(qqId, cardId, campus as Campus, password, result.name, result.sno);
+      db.addStudent(qqId, cardId, campus.toUpperCase() as Campus, password, result.name, result.sno);
       // Store the access token from login
       db.updateTokens(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
       console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);
@@ -361,7 +366,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     } else if (subcommand === 'query' || subcommand === 'bills') {
       const credentials = db.getCredentials(qqId);
       if (!credentials) {
-        await send(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码>`);
+        await send(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
         return;
       }
 

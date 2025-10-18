@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { encryptionService } from './encryption.js';
 import config from '../../config.json' with { type: 'json' };
 import { NotificationScheduler } from './scheduler.js';
+import type { CAMPUSES } from './constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +30,7 @@ export interface Student {
   last_login?: string;
 }
 
-export type Campus = 'GZIC' | 'DXC';
+export type Campus = typeof CAMPUSES[number];
 
 export interface StudentPublic {
   id: number;

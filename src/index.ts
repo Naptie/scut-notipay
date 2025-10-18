@@ -273,7 +273,7 @@ const handleNotifyCommand = async (
   // Check if user has credentials
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
-    await sendFn(`您还未绑定账号。请先使用：${command} bind <卡号> <卡片密码>`);
+    await sendFn(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码>`);
     return;
   }
 
@@ -348,7 +348,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     } else if (subcommand === 'query' || subcommand === 'bills') {
       const credentials = db.getCredentials(qqId);
       if (!credentials) {
-        await send(`您还未绑定账号。请使用：${command} bind <卡号> <卡片密码>`);
+        await send(`您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码>`);
         return;
       }
 

@@ -9,8 +9,8 @@ import { generateBillingChart, generateBillingSummary } from './utils/charts.js'
 /**
  * Store an access token for a user
  */
-const storeToken = (qqId: string, token: string, expiresIn: number) => {
-  db.updateAccessToken(qqId, token, expiresIn);
+const storeToken = (qqId: string, accessToken: string, TGC: string, loc_session: string, expiresIn: number) => {
+  db.updateTokens(qqId, accessToken, TGC, loc_session, expiresIn);
   console.log(`[Token] Stored token for QQ ${qqId}, expires in ${expiresIn}s`);
 }
 
@@ -18,9 +18,9 @@ const storeToken = (qqId: string, token: string, expiresIn: number) => {
  * Get a valid access token for a user
  * Uses cached token if available and valid, otherwise obtains a new one
  */
-const getValidToken = async (qqId: string): Promise<string> => {
+const getValidToken = async (qqId: string): Promise<[string, string, string]> => {
   // Try to get stored token
-  const storedToken = db.getAccessToken(qqId);
+  const storedToken = db.getTokens(qqId);
   if (storedToken) {
     return storedToken;
   }
@@ -34,9 +34,9 @@ const getValidToken = async (qqId: string): Promise<string> => {
   const result = await login(credentials.cardId, credentials.password);
 
   // Store the new token
-  storeToken(qqId, result.access_token, result.expires_in);
+  storeToken(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
 
-  return result.access_token;
+  return [result.access_token, result.TGC, result.locSession];
 };
 
 /**
@@ -58,8 +58,8 @@ const getCampus = (qqId: string): Campus => {
 const getBillsWithTokenRefresh = async (qqId: string) => {
   try {
     // First attempt with cached token
-    const token = await getValidToken(qqId);
-    return await getBills(token, getCampus(qqId));
+    const [token, TGC, locSession] = await getValidToken(qqId);
+    return await getBills(token, TGC, locSession, getCampus(qqId));
   } catch {
     // If getBills failed, the token might be invalid despite not being expired
     // Clear the token and try once more with a fresh login
@@ -71,10 +71,10 @@ const getBillsWithTokenRefresh = async (qqId: string) => {
     }
 
     const result = await login(credentials.cardId, credentials.password);
-    storeToken(qqId, result.access_token, result.expires_in);
+    storeToken(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
 
     // Retry with fresh token
-    return await getBills(result.access_token, getCampus(qqId));
+    return await getBills(result.access_token, result.TGC, result.locSession, getCampus(qqId));
   }
 };
 
@@ -343,9 +343,9 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       const [cardId, password, campus] = params;
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
-      db.addStudent(qqId, cardId, campus, password, result.name, result.sno);
+      db.addStudent(qqId, cardId, campus as Campus, password, result.name, result.sno);
       // Store the access token from login
-      db.updateAccessToken(qqId, result.access_token, result.expires_in);
+      db.updateTokens(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
       console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);
 
       await send(`成功绑定到 ${result.name}（学号：${result.sno}）。`);

@@ -34,5 +34,23 @@ export const obtainToken = async (username: string, password: string) => {
     sno: string;
   };
 
-  return data;
+  const setCookieHeader = response.headers.get('set-cookie') || '';
+  const cookies = setCookieHeader.split(',').map(c => c.trim());
+
+  let TGC = '';
+  let locSession = '';
+
+  cookies.forEach(cookie => {
+    if (cookie.startsWith('TGC=')) {
+      TGC = cookie.split(';')[0].replace('TGC=', '');
+    } else if (cookie.startsWith('locSession=')) {
+      locSession = cookie.split(';')[0].replace('locSession=', '');
+    }
+  });
+
+  return {
+    ...data,
+    TGC,
+    locSession
+  };
 };

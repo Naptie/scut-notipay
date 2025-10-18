@@ -14,7 +14,7 @@ interface BillResponse {
  * @param retryCount Number of retries (defaults to config value)
  * @returns Billing data or throws error
  */
-export const getBills = async (token: string, campus: Campus, retryCount: number = config.billingRetryCount) => {
+export const getBills = async (token: string, TGC: string, locSession: string, campus: Campus, retryCount: number = config.billingRetryCount) => {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retryCount; attempt++) {
@@ -23,7 +23,7 @@ export const getBills = async (token: string, campus: Campus, retryCount: number
         const res = await getBillsGZIC(token);
         return res;
       } else {
-        const res = await getBillsDXC(token);
+        const res = await getBillsDXC(token, TGC, locSession);
         return res;
       }
     } catch (error) {
@@ -88,8 +88,162 @@ const getBillsGZIC = async (token: string) => {
   return { water, ac, electric, room };
 }
 
-const getBillsDXC = async (token: string) => {
 
+const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
+  let jsessionid = '';
 
-  return {};
+  // redirect
+  const redirectResponse = await fetch(
+    `https://ecardwxnew.scut.edu.cn/berserker-base/redirect?appId=360&loginFrom=h5&synAccessSource=h5&synjones-auth=${token}&type=app`,
+    {
+      method: 'GET',
+      redirect: 'manual', // Don't auto-follow redirects
+      headers: {
+        'Cookie': `TGC=${TGC}; error_times=0; locSession=${locSession}`
+      }
+    }
+  );
+
+  if (redirectResponse.status !== 302) {
+    throw new Error(`Get redirect failed: Expected 302, got ${redirectResponse.status}`);
+  }
+
+  // thirdLogin
+  const thirdLoginUrl = httpToHttps(redirectResponse.headers.get('location'));
+  if (!thirdLoginUrl) {
+    throw new Error('Get redirect: No redirect location found');
+  }
+
+  const thirdLoginResponse = await fetch(thirdLoginUrl, {
+    method: 'GET',
+    redirect: 'manual',
+    headers: {
+      'Cookie': `TGC=${TGC}; locSession=${locSession}; error_times=0`
+    }
+  });
+
+  const setCookie = thirdLoginResponse.headers.get('set-cookie');
+  if (setCookie) {
+    const match = setCookie.match(/JSESSIONID=([^;]+)/);
+    if (match) {
+      jsessionid = match[1];
+    }
+  }
+  if (!jsessionid) {
+    throw new Error('Get thirdLogin: Failed to get JSESSIONID cookie');
+  }
+
+  if (thirdLoginResponse.status !== 302) {
+    throw new Error(`Get thirdLogin failed: Expected 302, got ${thirdLoginResponse.status}`);
+  }
+
+  // authorize
+  const authorizeUrl = httpToHttps(thirdLoginResponse.headers.get('location'));
+  if (!authorizeUrl) {
+    throw new Error('Get thirdLogin: No redirect location found');
+  }
+
+  const authorizeResponse = await fetch(authorizeUrl, {
+    method: 'GET',
+    redirect: 'manual',
+    headers: {
+      'Cookie': `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
+    }
+  });
+
+  if (authorizeResponse.status !== 302) {
+    throw new Error(`Get authorize failed: Expected 302, got ${authorizeResponse.status}`);
+  }
+
+  // getCode
+  const getCodeUrl = httpToHttps(authorizeResponse.headers.get('location'));
+  if (!getCodeUrl) {
+    throw new Error('Get authorize: No redirect location found');
+  }
+
+  const getCodeUrlResponse = await fetch(getCodeUrl, {
+    method: 'GET',
+    redirect: 'manual',
+    headers: {
+      'Cookie': `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
+    }
+  });
+
+  if (getCodeUrlResponse.status !== 302) {
+    throw new Error(`Get getCode failed: Expected 302, got ${getCodeUrlResponse.status}`);
+  }
+
+  if (getCodeUrlResponse.headers.get('location') !== '/sdms-weixin-pay-sp/newWeixin/index.html') {
+    throw new Error(`Get getCode failed: Expected redirect to index, got ${getCodeUrlResponse.headers.get('location')}`);
+  }
+
+  // *** All auth completed ***
+
+  // userInfo
+  const userInfoResponse = await fetch(
+    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/find/userinfo',
+    {
+      method: 'GET',
+      headers: {
+        'Cookie': `JSESSIONID=${jsessionid}`
+      }
+    }
+  );
+  if (!userInfoResponse.ok) {
+    throw new Error(`Get userInfo failed: HTTP ${userInfoResponse.status}`);
+  }
+  const userInfo = await userInfoResponse.json();
+  if (userInfo.statusCode !== '200') {
+    throw new Error(`Get userInfo API Error: ${userInfo.message || 'Unknown error'}`);
+  }
+  const room = userInfo.resultObject.roomName;
+
+  // ammeterBalance
+  const ammeterBalanceResponse = await fetch(
+    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/ammeterBalance?type=1',
+    {
+      method: 'GET',
+      headers: {
+        'Cookie': `JSESSIONID=${jsessionid}`
+      }
+    }
+  );
+  if (!ammeterBalanceResponse.ok) {
+    throw new Error(`Get ammeterBalanceResponse failed: HTTP ${ammeterBalanceResponse.status}`);
+  }
+  const electricData = await ammeterBalanceResponse.json();
+  if (electricData.statusCode !== '200') {
+    throw new Error(`Get ammeterBalanceResponse API Error: ${electricData.message || 'Unknown error'}`);
+  }
+  const electric = parseFloat(electricData.resultObject.leftMoney.toString());
+
+  // waterBalance
+  const waterBalanceResponse = await fetch(
+    'https://dfyc.utc.scut.edu.cn/sdms-weixin-pay-sp/service/waterBalance?type=3&systemType=1',
+    {
+      method: 'GET',
+      headers: {
+        'Cookie': `JSESSIONID=${jsessionid}`
+      }
+    }
+  );
+  if (!waterBalanceResponse.ok) {
+    throw new Error(`Get waterBalance failed: HTTP ${waterBalanceResponse.status}`);
+  }
+  const waterData = await waterBalanceResponse.json();
+  if (waterData.statusCode !== '200') {
+    throw new Error(`Get waterBalance API Error: ${waterData.message || 'Unknown error'}`);
+  }
+  const water = parseFloat(waterData.resultObject.leftMoney);
+
+  const ac = 0; // DXC campus has no AC balance
+
+  return { water, ac, electric, room };
+};
+
+function httpToHttps(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+  return url.replace(/^http:/, 'https:');
 }

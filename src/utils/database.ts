@@ -67,6 +67,8 @@ class StudentDatabase {
         name TEXT,
         student_number TEXT,
         access_token TEXT,
+        tgc TEXT,
+        loc_session TEXT,
         token_expires_at TEXT,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -230,19 +232,24 @@ class StudentDatabase {
   }
 
   /**
-   * Get stored access token if it exists and is not expired
+   * Get stored tokens if it exists and is not expired
    */
-  getAccessToken(qqId: string): string | null {
+  getTokens(qqId: string): [string, string, string] | null {
     const stmt = this.db.prepare(`
-      SELECT access_token, token_expires_at
+      SELECT access_token, tgc, loc_session, token_expires_at
       FROM students
       WHERE qq_id = ?
     `);
     const result = stmt.get(qqId) as
-      | { access_token: string | null; token_expires_at: string | null }
+      | {
+        access_token: string | null;
+        tgc: string | null;
+        loc_session: string | null;
+        token_expires_at: string | null
+      }
       | undefined;
 
-    if (!result || !result.access_token || !result.token_expires_at) {
+    if (!result || !result.access_token || !result.tgc || !result.loc_session || !result.token_expires_at) {
       return null;
     }
 
@@ -255,34 +262,38 @@ class StudentDatabase {
       return null; // Token expired or about to expire
     }
 
-    return result.access_token;
+    return [result.access_token, result.tgc, result.loc_session];
   }
 
   /**
-   * Update access token and expiration time for a user
+   * Update tokens and expiration time for a user
    */
-  updateAccessToken(qqId: string, accessToken: string, expiresIn: number): void {
+  updateTokens(qqId: string, accessToken: string, TGC: string, locSession: string, expiresIn: number): void {
     // Calculate expiration time (expiresIn is in seconds)
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
     const stmt = this.db.prepare(`
       UPDATE students
       SET access_token = ?,
+          tgc = ?,
+          loc_session = ?,
           token_expires_at = ?,
           updated_at = datetime('now', 'localtime')
       WHERE qq_id = ?
     `);
 
-    stmt.run(accessToken, expiresAt.toISOString(), qqId);
+    stmt.run(accessToken, TGC, locSession, expiresAt.toISOString(), qqId);
   }
 
   /**
-   * Clear access token for a user (when token is invalid)
+   * Clear tokens for a user (when token is invalid)
    */
   clearAccessToken(qqId: string): void {
     const stmt = this.db.prepare(`
       UPDATE students
       SET access_token = NULL,
+          tgc = NULL,
+          loc_session = NULL,
           token_expires_at = NULL,
           updated_at = datetime('now', 'localtime')
       WHERE qq_id = ?

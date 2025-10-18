@@ -56,7 +56,14 @@ const commands = {
     }
   },
 
-  add: (qqId: string, cardId: string, campus: Campus, password: string, name?: string, sno?: string) => {
+  add: (
+    qqId: string,
+    cardId: string,
+    campus: Campus,
+    password: string,
+    name?: string,
+    sno?: string
+  ) => {
     if (!qqId || !cardId || !password) {
       console.error('Usage: add <qq_id> <card_id> <password> [name] [student_number]');
       return;

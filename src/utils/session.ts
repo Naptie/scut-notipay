@@ -35,12 +35,12 @@ export const obtainToken = async (username: string, password: string) => {
   };
 
   const setCookieHeader = response.headers.get('set-cookie') || '';
-  const cookies = setCookieHeader.split(',').map(c => c.trim());
+  const cookies = setCookieHeader.split(',').map((c) => c.trim());
 
   let TGC = '';
   let locSession = '';
 
-  cookies.forEach(cookie => {
+  cookies.forEach((cookie) => {
     if (cookie.startsWith('TGC=')) {
       TGC = cookie.split(';')[0].replace('TGC=', '');
     } else if (cookie.startsWith('locSession=')) {

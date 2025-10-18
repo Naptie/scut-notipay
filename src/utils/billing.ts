@@ -14,12 +14,18 @@ interface BillResponse {
  * @param retryCount Number of retries (defaults to config value)
  * @returns Billing data or throws error
  */
-export const getBills = async (token: string, TGC: string, locSession: string, campus: Campus, retryCount: number = config.billingRetryCount) => {
+export const getBills = async (
+  token: string,
+  TGC: string,
+  locSession: string,
+  campus: Campus,
+  retryCount: number = config.billingRetryCount
+) => {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retryCount; attempt++) {
     try {
-      if (campus === "GZIC") {
+      if (campus === 'GZIC') {
         const res = await getBillsGZIC(token);
         return res;
       } else {
@@ -46,15 +52,12 @@ const getBillsGZIC = async (token: string) => {
 
   const responses = await Promise.all(
     feeitemids.map((id) =>
-      fetch(
-        `${BASE}/charge/feeitem/getThirdDataByFeeItemId?feeitemid=${id}&synAccessSource=h5`,
-        {
-          method: 'GET',
-          headers: {
-            'Synjones-Auth': `bearer ${token}`
-          }
+      fetch(`${BASE}/charge/feeitem/getThirdDataByFeeItemId?feeitemid=${id}&synAccessSource=h5`, {
+        method: 'GET',
+        headers: {
+          'Synjones-Auth': `bearer ${token}`
         }
-      )
+      })
     )
   );
 
@@ -86,8 +89,7 @@ const getBillsGZIC = async (token: string) => {
   const room = data[0].map.data.room;
 
   return { water, ac, electric, room };
-}
-
+};
 
 const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   let jsessionid = '';
@@ -99,7 +101,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
       method: 'GET',
       redirect: 'manual', // Don't auto-follow redirects
       headers: {
-        'Cookie': `TGC=${TGC}; error_times=0; locSession=${locSession}`
+        Cookie: `TGC=${TGC}; error_times=0; locSession=${locSession}`
       }
     }
   );
@@ -118,7 +120,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     method: 'GET',
     redirect: 'manual',
     headers: {
-      'Cookie': `TGC=${TGC}; locSession=${locSession}; error_times=0`
+      Cookie: `TGC=${TGC}; locSession=${locSession}; error_times=0`
     }
   });
 
@@ -147,7 +149,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     method: 'GET',
     redirect: 'manual',
     headers: {
-      'Cookie': `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
+      Cookie: `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
     }
   });
 
@@ -165,7 +167,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     method: 'GET',
     redirect: 'manual',
     headers: {
-      'Cookie': `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
+      Cookie: `JSESSIONID=${jsessionid}; TGC=${TGC}; locSession=${locSession}; error_times=0`
     }
   });
 
@@ -174,7 +176,9 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   }
 
   if (getCodeUrlResponse.headers.get('location') !== '/sdms-weixin-pay-sp/newWeixin/index.html') {
-    throw new Error(`Get getCode failed: Expected redirect to index, got ${getCodeUrlResponse.headers.get('location')}`);
+    throw new Error(
+      `Get getCode failed: Expected redirect to index, got ${getCodeUrlResponse.headers.get('location')}`
+    );
   }
 
   // *** All auth completed ***
@@ -185,7 +189,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     {
       method: 'GET',
       headers: {
-        'Cookie': `JSESSIONID=${jsessionid}`
+        Cookie: `JSESSIONID=${jsessionid}`
       }
     }
   );
@@ -204,7 +208,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     {
       method: 'GET',
       headers: {
-        'Cookie': `JSESSIONID=${jsessionid}`
+        Cookie: `JSESSIONID=${jsessionid}`
       }
     }
   );
@@ -213,7 +217,9 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   }
   const electricData = await ammeterBalanceResponse.json();
   if (electricData.statusCode !== '200') {
-    throw new Error(`Get ammeterBalanceResponse API Error: ${electricData.message || 'Unknown error'}`);
+    throw new Error(
+      `Get ammeterBalanceResponse API Error: ${electricData.message || 'Unknown error'}`
+    );
   }
   const electric = parseFloat(electricData.resultObject.leftMoney.toString());
 
@@ -223,7 +229,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
     {
       method: 'GET',
       headers: {
-        'Cookie': `JSESSIONID=${jsessionid}`
+        Cookie: `JSESSIONID=${jsessionid}`
       }
     }
   );

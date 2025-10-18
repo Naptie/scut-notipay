@@ -3,7 +3,7 @@ import type { AllHandlers, SendMessageSegment } from 'node-napcat-ts';
 import config from '../config.json' with { type: 'json' };
 import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
-import { db, scheduler } from './utils/database.js';
+import { db, scheduler, type Campus } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
 
 /**
@@ -40,13 +40,26 @@ const getValidToken = async (qqId: string): Promise<string> => {
 };
 
 /**
+ * Get the user's campus
+ */
+const getCampus = (qqId: string): Campus => {
+  const result = db.getCampus(qqId)
+
+  if (!result) {
+    throw new Error('No campus found for user');
+  }
+
+  return result;
+};
+
+/**
  * Get bills with automatic token refresh on failure
  */
 const getBillsWithTokenRefresh = async (qqId: string) => {
   try {
     // First attempt with cached token
     const token = await getValidToken(qqId);
-    return await getBills(token);
+    return await getBills(token, getCampus(qqId));
   } catch {
     // If getBills failed, the token might be invalid despite not being expired
     // Clear the token and try once more with a fresh login
@@ -61,7 +74,7 @@ const getBillsWithTokenRefresh = async (qqId: string) => {
     storeToken(qqId, result.access_token, result.expires_in);
 
     // Retry with fresh token
-    return await getBills(result.access_token);
+    return await getBills(result.access_token, getCampus(qqId));
   }
 };
 
@@ -304,15 +317,15 @@ napcat.on('message', async (context: AllHandlers['message']) => {
   const send = async (message: string | SendMessageSegment[]) => {
     await (isPrivateChat
       ? napcat.send_private_msg({
-          user_id: context.sender.user_id,
-          message:
-            typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
-        })
+        user_id: context.sender.user_id,
+        message:
+          typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
+      })
       : napcat.send_group_msg({
-          group_id: context.group_id,
-          message:
-            typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
-        }));
+        group_id: context.group_id,
+        message:
+          typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : message
+      }));
   };
 
   try {
@@ -324,13 +337,13 @@ napcat.on('message', async (context: AllHandlers['message']) => {
 
     if (subcommand === 'bind' && isPrivateChat) {
       if (params.length !== 2) {
-        await send(`用法：${command} ${subcommand} <卡号> <卡片密码>`);
+        await send(`用法：${command} ${subcommand} <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
         return;
       }
-      const [cardId, password] = params;
+      const [cardId, password, campus] = params;
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
-      db.addStudent(qqId, cardId, password, result.name, result.sno);
+      db.addStudent(qqId, cardId, campus, password, result.name, result.sno);
       // Store the access token from login
       db.updateAccessToken(qqId, result.access_token, result.expires_in);
       console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);

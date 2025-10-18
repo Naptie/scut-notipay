@@ -29,10 +29,13 @@ export interface Student {
   last_login?: string;
 }
 
+export type Campus = 'GZIC' | 'DXC';
+
 export interface StudentPublic {
   id: number;
   qq_id: string;
   card_id: string;
+  campus: Campus;
   name?: string;
   student_number?: string;
   created_at: string;
@@ -58,6 +61,7 @@ class StudentDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         qq_id TEXT NOT NULL UNIQUE,
         card_id TEXT NOT NULL,
+        campus TEXT NOT NULL CHECK(campus IN ('GZIC', 'DXC')),
         encrypted_password TEXT NOT NULL,
         salt TEXT NOT NULL,
         name TEXT,
@@ -125,6 +129,7 @@ class StudentDatabase {
   addStudent(
     qqId: string,
     cardId: string,
+    campus: Campus,
     password: string,
     name?: string,
     studentNumber?: string
@@ -134,10 +139,11 @@ class StudentDatabase {
     const encryptedPassword = encryptionService.encrypt(password, MASTER_PASSWORD);
 
     const stmt = this.db.prepare(`
-      INSERT INTO students (qq_id, card_id, encrypted_password, salt, name, student_number)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO students (qq_id, card_id, campus, encrypted_password, salt, name, student_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(qq_id) DO UPDATE SET
         card_id = excluded.card_id,
+        campus = excluded.campus,
         encrypted_password = excluded.encrypted_password,
         salt = excluded.salt,
         name = COALESCE(excluded.name, name),
@@ -145,7 +151,7 @@ class StudentDatabase {
         updated_at = datetime('now', 'localtime')
     `);
 
-    stmt.run(qqId, cardId, encryptedPassword, salt, name, studentNumber);
+    stmt.run(qqId, cardId, campus, encryptedPassword, salt, name, studentNumber);
 
     const student = this.getStudent(qqId);
     if (!student) {
@@ -159,12 +165,26 @@ class StudentDatabase {
    */
   getStudent(qqId: string): StudentPublic | null {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
       FROM students
       WHERE qq_id = ?
     `);
 
     return stmt.get(qqId) as StudentPublic | null;
+  }
+
+  /**
+ * Get student's campus by QQ ID
+ */
+  getCampus(qqId: string): Campus | null {
+    const stmt = this.db.prepare(`
+      SELECT campus
+      FROM students
+      WHERE qq_id = ?
+    `);
+
+    const result = stmt.get(qqId) as { campus: Campus } | undefined;
+    return result ? result.campus : null;
   }
 
   /**
@@ -317,6 +337,7 @@ class StudentDatabase {
         s.id, 
         s.qq_id, 
         s.card_id, 
+        s.campus,
         s.name, 
         s.student_number, 
         s.created_at, 
@@ -335,7 +356,7 @@ class StudentDatabase {
    */
   getAllStudents(): StudentPublic[] {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
       FROM students
       ORDER BY created_at DESC
     `);

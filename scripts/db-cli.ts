@@ -4,7 +4,7 @@
  * Usage: tsx src/db-cli.ts <command> [args]
  */
 
-import { db } from '../src/utils/database.js';
+import { Campus, db } from '../src/utils/database.js';
 
 const commands = {
   list: () => {
@@ -56,12 +56,12 @@ const commands = {
     }
   },
 
-  add: (qqId: string, cardId: string, password: string, name?: string, sno?: string) => {
+  add: (qqId: string, cardId: string, campus: Campus, password: string, name?: string, sno?: string) => {
     if (!qqId || !cardId || !password) {
       console.error('Usage: add <qq_id> <card_id> <password> [name] [student_number]');
       return;
     }
-    const student = db.addStudent(qqId, cardId, password, name, sno);
+    const student = db.addStudent(qqId, cardId, campus, password, name, sno);
     console.log('\nStudent added/updated:');
     console.log(JSON.stringify(student, null, 2));
     console.log();

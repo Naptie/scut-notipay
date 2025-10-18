@@ -62,6 +62,8 @@ class StudentDatabase {
         salt TEXT NOT NULL,
         name TEXT,
         student_number TEXT,
+        access_token TEXT,
+        token_expires_at TEXT,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
         last_login TEXT
@@ -205,6 +207,68 @@ class StudentDatabase {
       console.error('Failed to decrypt password:', error);
       return null;
     }
+  }
+
+  /**
+   * Get stored access token if it exists and is not expired
+   */
+  getAccessToken(qqId: string): string | null {
+    const stmt = this.db.prepare(`
+      SELECT access_token, token_expires_at
+      FROM students
+      WHERE qq_id = ?
+    `);
+    const result = stmt.get(qqId) as
+      | { access_token: string | null; token_expires_at: string | null }
+      | undefined;
+
+    if (!result || !result.access_token || !result.token_expires_at) {
+      return null;
+    }
+
+    // Check if token is expired
+    const expiresAt = new Date(result.token_expires_at);
+    const now = new Date();
+
+    // Add a 5-minute buffer to refresh before actual expiry
+    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+      return null; // Token expired or about to expire
+    }
+
+    return result.access_token;
+  }
+
+  /**
+   * Update access token and expiration time for a user
+   */
+  updateAccessToken(qqId: string, accessToken: string, expiresIn: number): void {
+    // Calculate expiration time (expiresIn is in seconds)
+    const expiresAt = new Date(Date.now() + expiresIn * 1000);
+
+    const stmt = this.db.prepare(`
+      UPDATE students
+      SET access_token = ?,
+          token_expires_at = ?,
+          updated_at = datetime('now', 'localtime')
+      WHERE qq_id = ?
+    `);
+
+    stmt.run(accessToken, expiresAt.toISOString(), qqId);
+  }
+
+  /**
+   * Clear access token for a user (when token is invalid)
+   */
+  clearAccessToken(qqId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE students
+      SET access_token = NULL,
+          token_expires_at = NULL,
+          updated_at = datetime('now', 'localtime')
+      WHERE qq_id = ?
+    `);
+
+    stmt.run(qqId);
   }
 
   /**

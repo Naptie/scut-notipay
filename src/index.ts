@@ -6,6 +6,61 @@ import { getBills } from './utils/billing.js';
 import { db, scheduler } from './utils/database.js';
 import { generateBillingChart, generateBillingSummary } from './utils/charts.js';
 
+/**
+ * Get a valid access token for a user
+ * Uses cached token if available and valid, otherwise obtains a new one
+ */
+const getValidToken = async (qqId: string): Promise<string> => {
+  // Try to get stored token
+  const storedToken = db.getAccessToken(qqId);
+  if (storedToken) {
+    console.log(`[Token] Using cached token for QQ ${qqId}`);
+    return storedToken;
+  }
+
+  // No valid stored token, need to login
+  console.log(`[Token] No valid cached token, logging in for QQ ${qqId}`);
+  const credentials = db.getCredentials(qqId);
+  if (!credentials) {
+    throw new Error('No credentials found for user');
+  }
+
+  const result = await login(credentials.cardId, credentials.password);
+
+  // Store the new token
+  db.updateAccessToken(qqId, result.access_token, result.expires_in);
+  console.log(`[Token] Stored new token for QQ ${qqId}, expires in ${result.expires_in}s`);
+
+  return result.access_token;
+};
+
+/**
+ * Get bills with automatic token refresh on failure
+ */
+const getBillsWithTokenRefresh = async (qqId: string) => {
+  try {
+    // First attempt with cached token
+    const token = await getValidToken(qqId);
+    return await getBills(token);
+  } catch {
+    // If getBills failed, the token might be invalid despite not being expired
+    // Clear the token and try once more with a fresh login
+    console.log(`[Token] Initial attempt failed, clearing token and retrying for QQ ${qqId}`);
+    db.clearAccessToken(qqId);
+
+    const credentials = db.getCredentials(qqId);
+    if (!credentials) {
+      throw new Error('No credentials found for user');
+    }
+
+    const result = await login(credentials.cardId, credentials.password);
+    db.updateAccessToken(qqId, result.access_token, result.expires_in);
+
+    // Retry with fresh token
+    return await getBills(result.access_token);
+  }
+};
+
 const napcat = new NCWebsocket(
   {
     baseUrl: config.napcatWs,
@@ -71,11 +126,11 @@ let hourlyInterval: NodeJS.Timeout | null = null;
 const runHourlyTasks = async () => {
   try {
     const currentHour = new Date().getHours();
-    console.log(`[Hourly Tasks] Running for hour: ${currentHour}`);
+    console.log(`[Scheduler] Running for hour: ${currentHour}`);
 
     // Get all students with their notification settings
     const students = db.getAllStudentsWithNotifications();
-    console.log(`[Hourly Tasks] Checking ${students.length} students`);
+    console.log(`[Scheduler] Checking ${students.length} students`);
 
     for (const student of students) {
       try {
@@ -83,22 +138,21 @@ const runHourlyTasks = async () => {
         // Get credentials
         const credentials = db.getCredentials(student.qq_id);
         if (!credentials) {
-          console.log(`[Hourly Tasks] No credentials for QQ ${student.qq_id}, skipping`);
+          console.log(`[Scheduler] No credentials for QQ ${student.qq_id}, skipping`);
           continue;
         }
 
-        // Login and get bills
-        const result = await login(credentials.cardId, credentials.password);
-        const { electric, ac, water, room } = await getBills(result.access_token);
+        // Get bills with automatic token management
+        const { electric, ac, water, room } = await getBillsWithTokenRefresh(student.qq_id);
 
         // Record billing history
         db.addBillingHistory(student.qq_id, electric, water, ac, room);
-        console.log(`[Hourly Tasks] Collected data for ${student.name || student.qq_id} (${room})`);
+        console.log(`[Scheduler] Collected data for ${student.name || student.qq_id} (${room})`);
         db.updateLastLogin(student.qq_id);
 
         // 2. Send Notification (if due)
         if (student.notification_hour !== null && student.notification_hour === currentHour) {
-          console.log(`[Hourly Tasks] Sending notification to ${student.name || student.qq_id}`);
+          console.log(`[Scheduler] Sending notification to ${student.name || student.qq_id}`);
 
           // Get 24h change
           const change24h = db.getBilling24HourChange(student.qq_id);
@@ -108,8 +162,7 @@ const runHourlyTasks = async () => {
 
           // Generate summary
           let messageText = `🏠 ${room}\n\n`;
-          messageText +=
-            generateBillingSummary({ electric, water, ac }, change24h || undefined);
+          messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
 
           // Build message segments
           const messageSegments: SendMessageSegment[] = [
@@ -148,16 +201,16 @@ const runHourlyTasks = async () => {
               });
             }
             console.log(
-              `[Hourly Tasks] Sent notification to ${notificationDetails.chat_type} ${notificationDetails.chat_id}`
+              `[Scheduler] Sent notification to ${notificationDetails.chat_type} ${notificationDetails.chat_id}`
             );
           }
         }
       } catch (error) {
-        console.error(`[Hourly Tasks] Failed to process QQ ${student.qq_id}:`, error);
+        console.error(`[Scheduler] Failed to process QQ ${student.qq_id}:`, error);
       }
     }
   } catch (error) {
-    console.error('[Hourly Tasks] Error during hourly tasks:', error);
+    console.error('[Scheduler] Error during hourly tasks:', error);
   }
 };
 
@@ -172,9 +225,7 @@ const startHourlyTimer = () => {
   const delayUntilNextHour = (60 - minutes - 1) * 60 * 1000 + (60 - seconds) * 1000 - milliseconds;
 
   console.log(
-    `[Hourly Tasks] Will start in ${Math.round(
-      delayUntilNextHour / 1000 / 60
-    )} minutes (at next hour)`
+    `[Scheduler] Will start in ${Math.round(delayUntilNextHour / 1000 / 60)} minutes (at next hour)`
   );
 
   // Schedule first run at the top of the next hour
@@ -183,7 +234,7 @@ const startHourlyTimer = () => {
 
     // Then run every hour on the hour
     hourlyInterval = setInterval(runHourlyTasks, 60 * 60 * 1000);
-    console.log('[Hourly Tasks] Timer started (runs every hour on the hour)');
+    console.log('[Scheduler] Timer started (runs every hour on the hour)');
   }, delayUntilNextHour);
 };
 
@@ -191,7 +242,7 @@ const stopHourlyTimer = () => {
   if (hourlyInterval) {
     clearInterval(hourlyInterval);
     hourlyInterval = null;
-    console.log('[Hourly Tasks] Timer stopped');
+    console.log('[Scheduler] Timer stopped');
   }
 };
 
@@ -276,10 +327,14 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
       db.addStudent(qqId, cardId, password, result.name, result.sno);
-      console.log(`[DB] Stored credentials for ${result.name} (${result.sno})`);
+      // Store the access token from login
+      db.updateAccessToken(qqId, result.access_token, result.expires_in);
+      console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);
 
       await send(`成功绑定到 ${result.name}（学号：${result.sno}）。`);
     } else if (subcommand === 'unbind') {
+      // Clear token before deleting (though CASCADE will handle this)
+      db.clearAccessToken(qqId);
       const deleted = db.deleteStudent(qqId);
       if (deleted) {
         await send('已解除绑定。');
@@ -293,11 +348,9 @@ napcat.on('message', async (context: AllHandlers['message']) => {
         return;
       }
 
-      // Login with stored credentials
-      const result = await login(credentials.cardId, credentials.password);
+      // Get bills with automatic token management
+      const { electric, ac, water, room } = await getBillsWithTokenRefresh(qqId);
       db.updateLastLogin(qqId);
-
-      const { electric, ac, water, room } = await getBills(result.access_token);
 
       // Get 24h change
       const change24h = db.getBilling24HourChange(qqId);

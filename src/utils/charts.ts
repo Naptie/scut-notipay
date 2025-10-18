@@ -155,7 +155,7 @@ export const generateBillingSummary = (
   output += `❄️ 空调费：\t${current.ac.toFixed(2)} 元\n`;
 
   if (change24h) {
-    output += '\n📈 24小时变化\n';
+    output += '\n📈 最近 24 小时\n';
     output += '─'.repeat(15) + '\n';
     output += `⚡ 电费：\t${change24h.electric > 0 ? '+' : ''}${change24h.electric.toFixed(2)} 元\n`;
     output += `💧 水费：\t${change24h.water > 0 ? '+' : ''}${change24h.water.toFixed(2)} 元\n`;

@@ -157,7 +157,6 @@ const runHourlyTasks = async () => {
     console.log(`[Scheduler] Checking ${students.length} students`);
 
     for (const student of students) {
-      console.log(student);
       try {
         // 1. Collect Data
         // Get credentials

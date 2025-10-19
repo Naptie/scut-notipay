@@ -12,6 +12,7 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.4.1",
+    "canvas": "^3.2.0",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
     "child_process": "^1.0.2",

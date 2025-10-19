@@ -5,7 +5,7 @@ import config from '../config.json' with { type: 'json' };
 import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
-import { generateBillingChart, generateBillingSummary } from './utils/presentation.js';
+import { generateBillingCharts, generateBillingSummary } from './utils/presentation.js';
 import { APP_NAME, CAMPUSES, GITHUB_LINK } from './utils/constants.js';
 
 let commitHash: string;
@@ -227,18 +227,18 @@ const runHourlyTasks = async () => {
             { type: 'text', data: { text: messageText } }
           ];
 
-          // Add chart image
+          // Add chart images
           if (history.length >= 2) {
             const chartData = history.reverse().map((h) => ({
               timestamp: h.recorded_at,
-              electric: Math.max(h.electric, 0),
-              water: Math.max(h.water, 0),
-              ac: Math.max(h.ac, 0)
+              electric: h.electric,
+              water: h.water,
+              ac: h.ac
             }));
 
-            const chartBuffer = await generateBillingChart(chartData, room);
-            if (chartBuffer) {
-              const base64Image = `base64://${chartBuffer.toString('base64')}`;
+            const charts = await generateBillingCharts(chartData, room);
+            for (const chart of charts) {
+              const base64Image = `base64://${chart.buffer.toString('base64')}`;
               messageSegments.push({ type: 'image', data: { file: base64Image } });
             }
           }
@@ -487,18 +487,18 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       // Build message segments
       const messageSegments: SendMessageSegment[] = [{ type: 'text', data: { text: messageText } }];
 
-      // Add chart image if we have enough data
+      // Add chart images if we have enough data
       if (history.length >= 2) {
         const chartData = history.reverse().map((h) => ({
           timestamp: h.recorded_at,
-          electric: Math.max(h.electric, 0),
-          water: Math.max(h.water, 0),
-          ac: Math.max(h.ac, 0)
+          electric: h.electric,
+          water: h.water,
+          ac: h.ac
         }));
 
-        const chartBuffer = await generateBillingChart(chartData, room);
-        if (chartBuffer) {
-          const base64Image = `base64://${chartBuffer.toString('base64')}`;
+        const charts = await generateBillingCharts(chartData, room);
+        for (const chart of charts) {
+          const base64Image = `base64://${chart.buffer.toString('base64')}`;
           messageSegments.push({ type: 'image', data: { file: base64Image } });
         }
       } else {

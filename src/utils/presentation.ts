@@ -1,5 +1,30 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import type { ChartConfiguration } from 'chart.js';
+import { registerFont } from 'canvas';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Register custom fonts
+try {
+  // Register Sora (regular weight)
+  registerFont(join(__dirname, '../../fonts/sora-latin-400-normal.ttf'), {
+    family: 'Sora',
+    weight: 'normal'
+  });
+
+  // Register Sora (bold weight)
+  registerFont(join(__dirname, '../../fonts/sora-latin-700-normal.ttf'), {
+    family: 'Sora',
+    weight: 'bold'
+  });
+
+  console.log('[Fonts] Custom fonts registered successfully');
+} catch (error) {
+  console.error('[Fonts] Failed to register custom fonts:', error);
+}
 
 export interface ChartData {
   timestamp: string;
@@ -8,15 +33,50 @@ export interface ChartData {
   ac: number;
 }
 
+export interface ChartResult {
+  buffer: Buffer;
+  title: string;
+}
+
+interface DatasetConfig {
+  label: string;
+  data: number[];
+  borderColor: string;
+  backgroundColor: string;
+}
+
+const DATASET_CONFIGS: DatasetConfig[] = [
+  {
+    label: '电费 (¥)',
+    data: [],
+    borderColor: 'rgb(255, 99, 132)',
+    backgroundColor: 'rgba(255, 99, 132, 0.1)'
+  },
+  {
+    label: '水费 (¥)',
+    data: [],
+    borderColor: 'rgb(54, 162, 235)',
+    backgroundColor: 'rgba(54, 162, 235, 0.1)'
+  },
+  {
+    label: '空调费 (¥)',
+    data: [],
+    borderColor: 'rgb(75, 192, 192)',
+    backgroundColor: 'rgba(75, 192, 192, 0.1)'
+  }
+];
+
 /**
- * Generate a PNG chart image for billing data
+ * Generate PNG chart images for billing data
+ * Automatically splits positive and negative values into separate charts
+ * Returns an array of chart buffers (1 or 2 charts)
  */
-export const generateBillingChart = async (
+export const generateBillingCharts = async (
   data: ChartData[],
   room: string
-): Promise<Buffer | null> => {
+): Promise<ChartResult[]> => {
   if (data.length < 2) {
-    return null;
+    return [];
   }
 
   // Sort data by timestamp
@@ -39,55 +99,106 @@ export const generateBillingChart = async (
   const waterData = sorted.map((d) => d.water);
   const acData = sorted.map((d) => d.ac);
 
-  // Create chart configuration
-  const configuration: ChartConfiguration = {
+  // Determine which items have any values <= -10
+  const hasNegativeElectric = electricData.some((v) => v <= -10);
+  const hasNegativeWater = waterData.some((v) => v <= -10);
+  const hasNegativeAc = acData.some((v) => v <= -10);
+
+  // Separate datasets into positive and negative groups
+  const positiveDatasets: DatasetConfig[] = [];
+  const negativeDatasets: DatasetConfig[] = [];
+
+  const allData = [
+    { data: electricData, hasNegative: hasNegativeElectric, index: 0 },
+    { data: waterData, hasNegative: hasNegativeWater, index: 1 },
+    { data: acData, hasNegative: hasNegativeAc, index: 2 }
+  ];
+
+  for (const { data: itemData, hasNegative, index } of allData) {
+    const config = { ...DATASET_CONFIGS[index], data: itemData };
+    if (hasNegative) {
+      negativeDatasets.push(config);
+    } else {
+      config.data = itemData.map((v) => Math.max(v, 0));
+      positiveDatasets.push(config);
+    }
+  }
+
+  // Create chart results
+  const results: ChartResult[] = [];
+  const chartJSNodeCanvas = new ChartJSNodeCanvas({
+    width: 800,
+    height: 500,
+    backgroundColour: 'white'
+  });
+
+  try {
+    if (positiveDatasets.length > 0) {
+      const title = `${room} 余额账单`;
+      const config = createChartConfig(labels, positiveDatasets, title);
+      const buffer = await chartJSNodeCanvas.renderToBuffer(config);
+      results.push({ buffer, title });
+    }
+
+    if (negativeDatasets.length > 0) {
+      const title = `${room} 欠费账单`;
+      const config = createChartConfig(labels, negativeDatasets, title);
+      const buffer = await chartJSNodeCanvas.renderToBuffer(config);
+      results.push({ buffer, title });
+    }
+  } catch (error) {
+    console.error('Failed to generate charts:', error);
+  }
+
+  return results;
+};
+
+/**
+ * Create a chart configuration
+ */
+function createChartConfig(
+  labels: string[],
+  datasets: DatasetConfig[],
+  title: string
+): ChartConfiguration {
+  return {
     type: 'line',
     data: {
       labels,
-      datasets: [
-        {
-          label: '电费 (¥)',
-          data: electricData,
-          borderColor: 'rgb(255, 99, 132)',
-          backgroundColor: 'rgba(255, 99, 132, 0.1)',
-          borderWidth: 2,
-          cubicInterpolationMode: 'monotone',
-          fill: true
-        },
-        {
-          label: '水费 (¥)',
-          data: waterData,
-          borderColor: 'rgb(54, 162, 235)',
-          backgroundColor: 'rgba(54, 162, 235, 0.1)',
-          borderWidth: 2,
-          cubicInterpolationMode: 'monotone',
-          fill: true
-        },
-        {
-          label: '空调费 (¥)',
-          data: acData,
-          borderColor: 'rgb(75, 192, 192)',
-          backgroundColor: 'rgba(75, 192, 192, 0.1)',
-          borderWidth: 2,
-          cubicInterpolationMode: 'monotone',
-          fill: true
-        }
-      ]
+      datasets: datasets.map((ds) => ({
+        label: ds.label,
+        data: ds.data,
+        borderColor: ds.borderColor,
+        backgroundColor: ds.backgroundColor,
+        borderWidth: 2,
+        cubicInterpolationMode: 'monotone',
+        fill: true
+      }))
     },
     options: {
+      devicePixelRatio: 2,
       responsive: true,
+      font: {
+        family: "'Sora', sans-serif"
+      },
       plugins: {
         title: {
           display: true,
-          text: `${room} 账单`,
+          text: title,
           font: {
             size: 18,
-            weight: 'bold'
+            weight: 'bold',
+            family: "'Sora', sans-serif"
           }
         },
         legend: {
           display: true,
-          position: 'top'
+          position: 'top',
+          labels: {
+            font: {
+              family: "'Sora', sans-serif"
+            }
+          }
         }
       },
       scales: {
@@ -95,17 +206,31 @@ export const generateBillingChart = async (
           beginAtZero: false,
           title: {
             display: true,
-            text: '余额 (¥)'
+            text: '余额 (¥)',
+            font: {
+              family: "'Sora', sans-serif"
+            }
+          },
+          ticks: {
+            font: {
+              family: "'Sora', sans-serif"
+            }
           }
         },
         x: {
           title: {
             display: true,
-            text: '时间'
+            text: '时间',
+            font: {
+              family: "'Sora', sans-serif"
+            }
           },
           ticks: {
             maxRotation: 90,
-            minRotation: 45
+            minRotation: 45,
+            font: {
+              family: "'Sora', sans-serif"
+            }
           }
         }
       }
@@ -124,21 +249,7 @@ export const generateBillingChart = async (
       }
     ]
   };
-
-  // Create chart instance
-  const chartJSNodeCanvas = new ChartJSNodeCanvas({
-    width: 1200,
-    height: 600,
-    backgroundColour: 'white'
-  });
-
-  try {
-    return await chartJSNodeCanvas.renderToBuffer(configuration);
-  } catch (error) {
-    console.error('Failed to generate chart:', error);
-    return null;
-  }
-};
+}
 
 /**
  * Generate billing summary with current values and 24h changes

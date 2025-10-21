@@ -260,9 +260,9 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   return { water, ac, electric, room };
 };
 
-function httpToHttps(url: string | null): string | null {
+const httpToHttps = (url: string | null): string | null => {
   if (!url) {
     return null;
   }
   return url.replace(/^http:/, 'https:');
-}
+};

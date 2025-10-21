@@ -87,9 +87,18 @@ export const generateBillingCharts = async (
   // Format labels (show date and time for hourly data)
   const labels = sorted.map((d) => {
     const date = new Date(d.timestamp);
-    return date.toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
+
+    if (date.getHours() === 0 && date.getMinutes() === 0) {
+      return (
+        '▶' +
+        date.toLocaleDateString('zh-CN', {
+          month: '2-digit',
+          day: '2-digit'
+        })
+      );
+    }
+
+    return date.toLocaleTimeString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -156,11 +165,25 @@ export const generateBillingCharts = async (
 /**
  * Create a chart configuration
  */
-function createChartConfig(
+const createChartConfig = (
   labels: string[],
   datasets: DatasetConfig[],
   title: string
-): ChartConfiguration {
+): ChartConfiguration => {
+  const totalPoints = labels.length;
+  let hourInterval;
+  if (totalPoints < 48) {
+    hourInterval = 1;
+  } else if (totalPoints < 72) {
+    hourInterval = 2;
+  } else if (totalPoints < 96) {
+    hourInterval = 4;
+  } else if (totalPoints < 144) {
+    hourInterval = 6;
+  } else {
+    hourInterval = 8;
+  }
+
   return {
     type: 'line',
     data: {
@@ -170,9 +193,10 @@ function createChartConfig(
         data: ds.data,
         borderColor: ds.borderColor,
         backgroundColor: ds.backgroundColor,
-        borderWidth: 2,
+        borderWidth: 2.5,
         cubicInterpolationMode: 'monotone',
-        fill: true
+        fill: true,
+        pointRadius: totalPoints < 24 ? 4 : 0
       }))
     },
     options: {
@@ -226,6 +250,20 @@ function createChartConfig(
             }
           },
           ticks: {
+            callback: function (value) {
+              const label = this.getLabelForValue(value as number);
+              // Always show date labels
+              if (label.includes('▶')) {
+                return label;
+              }
+              // Show time labels at adaptive intervals to avoid clutter
+              const hour = parseInt(label.split(':')[0], 10);
+              if (hour % hourInterval === 0) {
+                return label;
+              }
+              return null; // Hide other labels
+            },
+            autoSkip: false, // Disable auto-skipping to use custom callback
             maxRotation: 90,
             minRotation: 45,
             font: {
@@ -249,7 +287,7 @@ function createChartConfig(
       }
     ]
   };
-}
+};
 
 /**
  * Generate billing summary with current values and 24h changes

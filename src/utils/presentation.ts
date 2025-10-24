@@ -124,6 +124,11 @@ export const generateBillingCharts = async (
   ];
 
   for (const { data: itemData, hasNegative, index } of allData) {
+    const isAllZero = itemData.every((v) => v === 0);
+    if (isAllZero) {
+      continue;
+    }
+
     const config = { ...DATASET_CONFIGS[index], data: itemData };
     if (hasNegative) {
       negativeDatasets.push(config);

@@ -268,7 +268,7 @@ const createChartConfig = (
               const parts = label.split(':');
               const hour = parts.length > 1 ? parseInt(parts[0], 10) : 0;
 
-              if (index === ticks.length - hourInterval) {
+              if (index >= ticks.length - hourInterval) {
                 const hourDiff = Math.abs(lastHour - hour);
                 if (hourDiff < hourInterval / 2) {
                   return null;

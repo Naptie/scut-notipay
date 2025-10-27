@@ -189,6 +189,9 @@ const createChartConfig = (
     hourInterval = 8;
   }
 
+  const lastLabel = labels[labels.length - 1];
+  const lastHour = parseInt(lastLabel.split(':')[0], 10);
+
   return {
     type: 'line',
     data: {
@@ -255,18 +258,27 @@ const createChartConfig = (
             }
           },
           ticks: {
-            callback: function (value) {
+            callback: function (value, index, ticks) {
               const label = this.getLabelForValue(value as number);
-              // Always show date labels
-              if (label.includes('▶')) {
+
+              if (index === ticks.length - 1) {
                 return label;
               }
-              // Show time labels at adaptive intervals to avoid clutter
-              const hour = parseInt(label.split(':')[0], 10);
-              if (hour % hourInterval === 0) {
+
+              const parts = label.split(':');
+              const hour = parts.length > 1 ? parseInt(parts[0], 10) : 0;
+
+              if (index === ticks.length - hourInterval) {
+                const hourDiff = Math.abs(lastHour - hour);
+                if (hourDiff < hourInterval / 2 && hourDiff > 0) {
+                  return null;
+                }
+              }
+
+              if (hour === 0 || hour % hourInterval === 0) {
                 return label;
               }
-              return null; // Hide other labels
+              return null;
             },
             autoSkip: false, // Disable auto-skipping to use custom callback
             maxRotation: 90,

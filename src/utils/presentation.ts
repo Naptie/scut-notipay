@@ -270,7 +270,7 @@ const createChartConfig = (
 
               if (index === ticks.length - hourInterval) {
                 const hourDiff = Math.abs(lastHour - hour);
-                if (hourDiff < hourInterval / 2 && hourDiff > 0) {
+                if (hourDiff < hourInterval / 2) {
                   return null;
                 }
               }

@@ -17,6 +17,124 @@ try {
 }
 
 /**
+ * Parse a time parameter from user input (using local time UTC+8)
+ * Supports formats like:
+ * - "7h" (7 hours ago)
+ * - "3d" (3 days ago)
+ * - "2w" (2 weeks ago)
+ * - "1030" (Oct 30 00:00)
+ * - "10302330" (Oct 30 23:30)
+ * - "10-30|23:30" (with delimiters)
+ */
+const parseTimeParameter = (param: string): Date => {
+  // Get current time in local timezone (UTC+8)
+  const now = new Date();
+
+  // Remove all non-digit and non-letter characters for initial check
+  const cleanParam = param.replace(/[^0-9a-zA-Z]/g, '');
+
+  // Check if it ends with time unit (h, d, w)
+  const unitMatch = cleanParam.match(/^(\d+)([hdw])$/i);
+  if (unitMatch) {
+    const value = parseInt(unitMatch[1], 10);
+    const unit = unitMatch[2].toLowerCase();
+
+    // Create a new date and subtract time
+    const result = new Date(now);
+    if (unit === 'h') {
+      result.setHours(result.getHours() - value);
+    } else if (unit === 'd') {
+      result.setDate(result.getDate() - value);
+    } else if (unit === 'w') {
+      result.setDate(result.getDate() - value * 7);
+    }
+    return result;
+  }
+
+  // Check for delimiters (-, /, :, |, space) to parse as date/time
+  const hasDelimiters = /[-/::\s|]/.test(param);
+
+  if (hasDelimiters) {
+    // Split by delimiters and extract numbers
+    const parts = param.split(/[-/::\s|]+/).filter((p) => p.trim());
+
+    if (parts.length < 2) {
+      throw new Error('日期格式不正确，需要至少包含月份和日期');
+    }
+
+    // Parse as: month day [hour] [minute]
+    const month = parseInt(parts[0], 10);
+    const day = parseInt(parts[1], 10);
+    const hour = parts.length > 2 ? parseInt(parts[2], 10) : 0;
+    const minute = parts.length > 3 ? parseInt(parts[3], 10) : 0;
+
+    if (isNaN(month) || isNaN(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+      throw new Error('日期格式不正确');
+    }
+
+    if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      throw new Error('时间格式不正确');
+    }
+
+    // Create date in local timezone
+    const result = new Date(now.getFullYear(), month - 1, day, hour, minute, 0, 0);
+
+    // If the parsed date is in the future, assume it's from last year
+    if (result > now) {
+      result.setFullYear(result.getFullYear() - 1);
+    }
+
+    return result;
+  }
+
+  // Parse as continuous digits (e.g., "1030" or "10302330")
+  const digitsOnly = cleanParam;
+
+  if (digitsOnly.length < 4) {
+    // Less than 4 digits, treat as hours with default unit
+    const hours = parseInt(digitsOnly, 10);
+    if (isNaN(hours)) {
+      throw new Error('时间参数格式不正确');
+    }
+    const result = new Date(now);
+    result.setHours(result.getHours() - hours);
+    return result;
+  }
+
+  // 4 or more digits: parse as MMDD or MMDDHHMM
+  const month = parseInt(digitsOnly.substring(0, 2), 10);
+  const day = parseInt(digitsOnly.substring(2, 4), 10);
+
+  let hour = 0;
+  let minute = 0;
+
+  if (digitsOnly.length >= 6) {
+    hour = parseInt(digitsOnly.substring(4, 6), 10);
+  }
+  if (digitsOnly.length >= 8) {
+    minute = parseInt(digitsOnly.substring(6, 8), 10);
+  }
+
+  if (isNaN(month) || isNaN(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+    throw new Error('日期格式不正确');
+  }
+
+  if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error('时间格式不正确');
+  }
+
+  // Create date in local timezone
+  const result = new Date(now.getFullYear(), month - 1, day, hour, minute, 0, 0);
+
+  // If the parsed date is in the future, assume it's from last year
+  if (result > now) {
+    result.setFullYear(result.getFullYear() - 1);
+  }
+
+  return result;
+};
+
+/**
  * Store an access token for a user
  */
 const storeToken = (
@@ -381,9 +499,15 @@ const handleHelp = async (
     '2. 解绑账号（私聊或群聊）：\n' +
     `${command} unbind\n\n` +
     '3. 查询当前账单（私聊或群聊）：\n' +
-    `${command} query\n` +
+    `${command} query [起始时间] [结束时间]\n` +
     '   或\n' +
-    `${command} bills\n\n` +
+    `${command} bills [起始时间] [结束时间]\n` +
+    '   时间格式支持：\n' +
+    '   - 相对时间：7h（7 小时前），3d（3 天前），2w（2 周前）\n' +
+    '   - 绝对时间：1030（10 月 30 日 0:00），10302330（10 月 30 日 23:30）\n' +
+    '   - 带分隔符：10-30|23:30，10/30|23:30，10/30/23:30\n' +
+    `   例：${command} query 7d（显示最近 7 天；默认）\n` +
+    `   例：${command} query 1025 1030（显示 10 月 25 日至 30 日）\n\n` +
     '4. 设置定时通知（私聊或群聊）：\n' +
     `${command} notify <小时 (0-23)> [阈值]\n` +
     `   例：${command} notify 20 10\n` +
@@ -470,6 +594,28 @@ napcat.on('message', async (context: AllHandlers['message']) => {
         return;
       }
 
+      // Parse time range parameters
+      let startTime: Date | null = null;
+      let endTime: Date | null = null;
+
+      try {
+        if (params.length >= 1) {
+          startTime = parseTimeParameter(params[0]);
+        }
+        if (params.length >= 2) {
+          endTime = parseTimeParameter(params[1]);
+        }
+
+        // Validation
+        if (startTime && endTime && startTime >= endTime) {
+          await send('错误：起始时间必须早于结束时间。');
+          return;
+        }
+      } catch (error) {
+        await send(`时间参数格式错误：${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+
       // Get bills with automatic token management
       const { electric, ac, water, room } = await getBillsWithTokenRefresh(qqId);
       db.updateLastLogin(qqId);
@@ -477,8 +623,14 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       // Get 24h change
       const change24h = db.getBilling24HourChange(qqId);
 
-      // Get history for chart (last 7 days)
-      const history = db.getBillingHistory(qqId, 7);
+      // Get history for chart with custom time range
+      let history;
+      if (startTime || endTime) {
+        history = db.getBillingHistoryByTimeRange(qqId, startTime, endTime);
+      } else {
+        // Default: last 7 days
+        history = db.getBillingHistory(qqId, 7);
+      }
 
       // Generate summary
       let messageText = `🏠 ${room}\n\n`;
@@ -489,12 +641,24 @@ napcat.on('message', async (context: AllHandlers['message']) => {
 
       // Add chart images if we have enough data
       if (history.length >= 2) {
-        const chartData = history.reverse().map((h) => ({
-          timestamp: h.recorded_at,
-          electric: h.electric,
-          water: h.water,
-          ac: h.ac
-        }));
+        const chartData = history
+          .reverse()
+          .map(
+            (h: {
+              id: number;
+              qq_id: string;
+              electric: number;
+              water: number;
+              ac: number;
+              room: string | null;
+              recorded_at: string;
+            }) => ({
+              timestamp: h.recorded_at,
+              electric: h.electric,
+              water: h.water,
+              ac: h.ac
+            })
+          );
 
         const charts = await generateBillingCharts(chartData, room);
         for (const chart of charts) {

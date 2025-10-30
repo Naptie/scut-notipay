@@ -446,6 +446,71 @@ class StudentDatabase {
   }
 
   /**
+   * Get billing history for a user within a specific time range
+   */
+  getBillingHistoryByTimeRange(
+    qqId: string,
+    startTime?: Date | null,
+    endTime?: Date | null
+  ): Array<{
+    id: number;
+    qq_id: string;
+    electric: number;
+    water: number;
+    ac: number;
+    room: string | null;
+    recorded_at: string;
+  }> {
+    let sql = `
+      SELECT * FROM billing_history
+      WHERE qq_id = ?
+    `;
+
+    const params: (string | number)[] = [qqId];
+
+    if (startTime) {
+      // Convert Date to local time string format: YYYY-MM-DD HH:MM:SS
+      const year = startTime.getFullYear();
+      const month = String(startTime.getMonth() + 1).padStart(2, '0');
+      const day = String(startTime.getDate()).padStart(2, '0');
+      const hours = String(startTime.getHours()).padStart(2, '0');
+      const minutes = String(startTime.getMinutes()).padStart(2, '0');
+      const seconds = String(startTime.getSeconds()).padStart(2, '0');
+      const localTimeStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+
+      sql += ` AND recorded_at >= ?`;
+      params.push(localTimeStr);
+    }
+
+    if (endTime) {
+      // Convert Date to local time string format: YYYY-MM-DD HH:MM:SS
+      const year = endTime.getFullYear();
+      const month = String(endTime.getMonth() + 1).padStart(2, '0');
+      const day = String(endTime.getDate()).padStart(2, '0');
+      const hours = String(endTime.getHours()).padStart(2, '0');
+      const minutes = String(endTime.getMinutes()).padStart(2, '0');
+      const seconds = String(endTime.getSeconds()).padStart(2, '0');
+      const localTimeStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+
+      sql += ` AND recorded_at <= ?`;
+      params.push(localTimeStr);
+    }
+
+    sql += ' ORDER BY recorded_at DESC';
+
+    const stmt = this.db.prepare(sql);
+    return stmt.all(...params) as Array<{
+      id: number;
+      qq_id: string;
+      electric: number;
+      water: number;
+      ac: number;
+      room: string | null;
+      recorded_at: string;
+    }>;
+  }
+
+  /**
    * Get latest billing record for a user
    */
   getLatestBilling(qqId: string): {

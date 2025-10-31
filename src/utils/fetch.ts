@@ -1,10 +1,14 @@
 import { ProxyAgent } from 'undici';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 
 /**
  * Custom fetch wrapper with proxy support
  *
- * Supports HTTP proxy with basic authentication via the HTTP_PROXY or HTTPS_PROXY environment variable.
- * Format: http://username:password@proxy-host:port
+ * Supports HTTP/HTTPS and SOCKS5 proxies with basic authentication via environment variables.
+ *
+ * Environment variables (in order of precedence):
+ * - SOCKS_PROXY or SOCKS5_PROXY: socks5://[username:password@]host:port
+ * - HTTP_PROXY or HTTPS_PROXY: http://[username:password@]host:port
  *
  * @param input - The URL or Request object
  * @param init - Optional fetch options
@@ -14,13 +18,24 @@ export const fetch = async (
   input: string | URL | Request,
   init?: RequestInit
 ): Promise<Response> => {
-  const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+  // Check for SOCKS proxy first
+  const socksProxyUrl = process.env.SOCKS_PROXY || process.env.SOCKS5_PROXY;
+  if (socksProxyUrl) {
+    const dispatcher = new SocksProxyAgent(socksProxyUrl);
 
-  if (proxyUrl) {
-    // Create undici proxy agent
-    const dispatcher = new ProxyAgent(proxyUrl);
+    const requestInit = {
+      ...init,
+      dispatcher
+    } as RequestInit;
 
-    // Add dispatcher to the request options
+    return globalThis.fetch(input, requestInit);
+  }
+
+  // Check for HTTP/HTTPS proxy
+  const httpProxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+  if (httpProxyUrl) {
+    const dispatcher = new ProxyAgent(httpProxyUrl);
+
     const requestInit = {
       ...init,
       dispatcher

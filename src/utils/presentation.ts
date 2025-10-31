@@ -99,8 +99,7 @@ export const generateBillingCharts = async (
     }
 
     return date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
+      hour: 'numeric'
     });
   });
 
@@ -261,12 +260,12 @@ const createChartConfig = (
             callback: function (value, index, ticks) {
               const label = this.getLabelForValue(value as number);
 
-              if (index === ticks.length - 1) {
-                return label;
-              }
+              const hour = label.endsWith('时') ? parseInt(label, 10) : 0;
+              const hourLabel = `${hour.toString().padStart(2, '0')}:00`;
 
-              const parts = label.split(':');
-              const hour = parts.length > 1 ? parseInt(parts[0], 10) : 0;
+              if (index === ticks.length - 1) {
+                return hourLabel;
+              }
 
               if (index >= ticks.length - hourInterval) {
                 const hourDiff = Math.abs(lastHour - hour);
@@ -275,9 +274,14 @@ const createChartConfig = (
                 }
               }
 
-              if (hour === 0 || hour % hourInterval === 0) {
+              if (hour === 0) {
                 return label;
               }
+
+              if (hour % hourInterval === 0) {
+                return hourLabel;
+              }
+
               return null;
             },
             autoSkip: false, // Disable auto-skipping to use custom callback

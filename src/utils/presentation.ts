@@ -1,12 +1,31 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import type { ChartConfiguration } from 'chart.js';
-import 'chartjs-adapter-date-fns';
 import { registerFont } from 'canvas';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { registerDateAdapter } from './chart-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Create a singleton ChartJSNodeCanvas instance to reuse across chart generations
+// This ensures the date adapter registration persists
+let chartJSNodeCanvasInstance: ChartJSNodeCanvas | null = null;
+
+function getChartJSNodeCanvas(): ChartJSNodeCanvas {
+  if (!chartJSNodeCanvasInstance) {
+    chartJSNodeCanvasInstance = new ChartJSNodeCanvas({
+      width: 800,
+      height: 500,
+      backgroundColour: 'white',
+      chartCallback: () => {
+        // Register date adapter with this Chart.js instance
+        registerDateAdapter();
+      }
+    });
+  }
+  return chartJSNodeCanvasInstance;
+}
 
 // Register custom fonts
 try {
@@ -123,11 +142,7 @@ export const generateBillingCharts = async (
 
   // Create chart results
   const results: ChartResult[] = [];
-  const chartJSNodeCanvas = new ChartJSNodeCanvas({
-    width: 800,
-    height: 500,
-    backgroundColour: 'white'
-  });
+  const chartJSNodeCanvas = getChartJSNodeCanvas();
 
   try {
     if (positiveDatasets.length > 0) {

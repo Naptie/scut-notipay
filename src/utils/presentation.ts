@@ -1,5 +1,6 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import type { ChartConfiguration } from 'chart.js';
+import 'chartjs-adapter-date-fns';
 import { registerFont } from 'canvas';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -40,7 +41,7 @@ export interface ChartResult {
 
 interface DatasetConfig {
   label: string;
-  data: number[];
+  data: { x: number; y: number }[];
   borderColor: string;
   backgroundColor: string;
 }
@@ -84,33 +85,16 @@ export const generateBillingCharts = async (
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
-  // Format labels (show date and time for hourly data)
-  const labels = sorted.map((d) => {
-    const date = new Date(d.timestamp);
-
-    if (date.getHours() === 0 && date.getMinutes() === 0) {
-      return (
-        '▶' +
-        date.toLocaleDateString('zh-CN', {
-          month: '2-digit',
-          day: '2-digit'
-        })
-      );
-    }
-
-    return date.toLocaleTimeString('zh-CN', {
-      hour: 'numeric'
-    });
-  });
-
-  const electricData = sorted.map((d) => d.electric);
-  const waterData = sorted.map((d) => d.water);
-  const acData = sorted.map((d) => d.ac);
+  // Convert data to {x, y} format with timestamps in milliseconds for proper time scaling
+  const timestamps = sorted.map((d) => new Date(d.timestamp));
+  const electricData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.electric }));
+  const waterData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.water }));
+  const acData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.ac }));
 
   // Determine which items have any values <= -10
-  const hasNegativeElectric = electricData.some((v) => v <= -10);
-  const hasNegativeWater = waterData.some((v) => v <= -10);
-  const hasNegativeAc = acData.some((v) => v <= -10);
+  const hasNegativeElectric = sorted.some((d) => d.electric <= -10);
+  const hasNegativeWater = sorted.some((d) => d.water <= -10);
+  const hasNegativeAc = sorted.some((d) => d.ac <= -10);
 
   // Separate datasets into positive and negative groups
   const positiveDatasets: DatasetConfig[] = [];
@@ -123,7 +107,7 @@ export const generateBillingCharts = async (
   ];
 
   for (const { data: itemData, hasNegative, index } of allData) {
-    const isAllZero = itemData.every((v) => v === 0);
+    const isAllZero = itemData.every((point) => point.y === 0);
     if (isAllZero) {
       continue;
     }
@@ -132,7 +116,7 @@ export const generateBillingCharts = async (
     if (hasNegative) {
       negativeDatasets.push(config);
     } else {
-      config.data = itemData.map((v) => Math.max(v, 0));
+      config.data = itemData.map((point) => ({ x: point.x, y: Math.max(point.y, 0) }));
       positiveDatasets.push(config);
     }
   }
@@ -148,14 +132,14 @@ export const generateBillingCharts = async (
   try {
     if (positiveDatasets.length > 0) {
       const title = `${room} 余额账单`;
-      const config = createChartConfig(labels, positiveDatasets, title);
+      const config = createChartConfig(positiveDatasets, title, sorted.length);
       const buffer = await chartJSNodeCanvas.renderToBuffer(config);
       results.push({ buffer, title });
     }
 
     if (negativeDatasets.length > 0) {
       const title = `${room} 欠费账单`;
-      const config = createChartConfig(labels, negativeDatasets, title);
+      const config = createChartConfig(negativeDatasets, title, sorted.length);
       const buffer = await chartJSNodeCanvas.renderToBuffer(config);
       results.push({ buffer, title });
     }
@@ -167,34 +151,25 @@ export const generateBillingCharts = async (
 };
 
 /**
- * Create a chart configuration
+ * Create a chart configuration with time scale
  */
 const createChartConfig = (
-  labels: string[],
   datasets: DatasetConfig[],
-  title: string
+  title: string,
+  totalPoints: number
 ): ChartConfiguration => {
-  const totalPoints = labels.length;
-  let hourInterval;
-  if (totalPoints < 48) {
-    hourInterval = 1;
-  } else if (totalPoints < 72) {
-    hourInterval = 2;
-  } else if (totalPoints < 96) {
-    hourInterval = 4;
-  } else if (totalPoints < 144) {
-    hourInterval = 6;
-  } else {
-    hourInterval = 8;
-  }
+  // Determine time unit based on the data range
+  let timeUnit: 'hour' | 'day' = 'hour';
 
-  const lastLabel = labels[labels.length - 1];
-  const lastHour = parseInt(lastLabel.split(':')[0], 10);
+  // For larger datasets, we may want to switch to day view
+  if (totalPoints > 168) {
+    // More than a week of hourly data
+    timeUnit = 'day';
+  }
 
   return {
     type: 'line',
     data: {
-      labels,
       datasets: datasets.map((ds) => ({
         label: ds.label,
         data: ds.data,
@@ -249,6 +224,15 @@ const createChartConfig = (
           }
         },
         x: {
+          type: 'time',
+          time: {
+            unit: timeUnit,
+            displayFormats: {
+              hour: 'HH:mm',
+              day: 'MM-dd'
+            },
+            tooltipFormat: 'yyyy-MM-dd HH:mm'
+          },
           title: {
             display: true,
             text: '时间',
@@ -257,34 +241,6 @@ const createChartConfig = (
             }
           },
           ticks: {
-            callback: function (value, index, ticks) {
-              const label = this.getLabelForValue(value as number);
-
-              const hour = label.endsWith('时') ? parseInt(label, 10) : 0;
-              const hourLabel = `${hour.toString().padStart(2, '0')}:00`;
-
-              if (index === ticks.length - 1) {
-                return hourLabel;
-              }
-
-              if (index >= ticks.length - hourInterval) {
-                const hourDiff = Math.abs(lastHour - hour);
-                if (hourDiff < hourInterval / 2) {
-                  return null;
-                }
-              }
-
-              if (hour === 0) {
-                return label;
-              }
-
-              if (hour % hourInterval === 0) {
-                return hourLabel;
-              }
-
-              return null;
-            },
-            autoSkip: false, // Disable auto-skipping to use custom callback
             maxRotation: 90,
             minRotation: 45,
             font: {

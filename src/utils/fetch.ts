@@ -1,5 +1,5 @@
 import { ProxyAgent } from 'undici';
-import { SocksProxyAgent } from 'socks-proxy-agent';
+import { socksDispatcher } from 'fetch-socks';
 
 /**
  * Custom fetch wrapper with proxy support
@@ -21,7 +21,18 @@ export const fetch = async (
   // Check for SOCKS proxy first
   const socksProxyUrl = process.env.SOCKS_PROXY || process.env.SOCKS5_PROXY;
   if (socksProxyUrl) {
-    const dispatcher = new SocksProxyAgent(socksProxyUrl);
+    const url = new URL(socksProxyUrl);
+    
+    // Create SOCKS dispatcher
+    const dispatcher = socksDispatcher({
+      type: 5, // SOCKS5
+      host: url.hostname,
+      port: parseInt(url.port) || 1080,
+      ...(url.username && {
+        userId: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password)
+      })
+    });
 
     const requestInit = {
       ...init,

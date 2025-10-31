@@ -22,7 +22,7 @@ export const fetch = async (
   const socksProxyUrl = process.env.SOCKS_PROXY || process.env.SOCKS5_PROXY;
   if (socksProxyUrl) {
     const url = new URL(socksProxyUrl);
-    
+
     // Create SOCKS dispatcher
     const dispatcher = socksDispatcher({
       type: 5, // SOCKS5

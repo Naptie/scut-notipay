@@ -7,3 +7,5 @@ export const DFYC_BASE = 'https://dfyc.utc.scut.edu.cn';
 export const CAMPUSES = ['GZIC', 'DXC'] as const;
 
 export const NORETRY_ERROR_PREFIX = '[NORETRY]';
+
+export const DATA_COLLECTION_BATCH_SIZE = 5;

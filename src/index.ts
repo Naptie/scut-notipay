@@ -6,7 +6,7 @@ import { obtainToken as login } from './utils/session.js';
 import { getBills } from './utils/billing.js';
 import { db, scheduler, type Campus } from './utils/database.js';
 import { generateBillingCharts, generateBillingSummary } from './utils/presentation.js';
-import { APP_NAME, CAMPUSES, GITHUB_LINK } from './utils/constants.js';
+import { APP_NAME, CAMPUSES, DATA_COLLECTION_BATCH_SIZE, GITHUB_LINK } from './utils/constants.js';
 
 let commitHash: string;
 try {
@@ -280,6 +280,195 @@ const parseMessage = (context: AllHandlers['message']) => {
 // Combined timer for data collection and notifications
 let hourlyInterval: NodeJS.Timeout | null = null;
 
+/**
+ * Type for collected student billing data
+ */
+type CollectedData = {
+  qqId: string;
+  name: string | null | undefined;
+  electric: number;
+  water: number;
+  ac: number;
+  room: string;
+  success: boolean;
+  error?: Error;
+};
+
+/**
+ * Collect billing data for a single student
+ */
+const collectStudentData = async (student: {
+  qq_id: string;
+  name?: string | null;
+  student_number?: string;
+}): Promise<CollectedData> => {
+  try {
+    // Get credentials
+    const credentials = db.getCredentials(student.qq_id);
+    if (!credentials) {
+      console.log(`[Scheduler] No credentials for QQ ${student.qq_id}, skipping`);
+      return {
+        qqId: student.qq_id,
+        name: student.name,
+        electric: 0,
+        water: 0,
+        ac: 0,
+        room: '',
+        success: false,
+        error: new Error('No credentials found')
+      };
+    }
+
+    // Get bills with automatic token management
+    const { electric, ac, water, room } = await getBillsWithTokenRefresh(student.qq_id);
+
+    // Record billing history
+    db.addBillingHistory(student.qq_id, electric, water, ac, room);
+    console.log(`[Scheduler] Collected data for ${student.name || student.qq_id} (${room})`);
+    db.updateLastLogin(student.qq_id);
+
+    return {
+      qqId: student.qq_id,
+      name: student.name,
+      electric,
+      water,
+      ac,
+      room,
+      success: true
+    };
+  } catch (error) {
+    console.error(`[Scheduler] Failed to collect data for QQ ${student.qq_id}:`, error);
+    return {
+      qqId: student.qq_id,
+      name: student.name,
+      electric: 0,
+      water: 0,
+      ac: 0,
+      room: '',
+      success: false,
+      error: error instanceof Error ? error : new Error(String(error))
+    };
+  }
+};
+
+/**
+ * Process students in parallel batches
+ */
+const collectData = async (
+  students: { qq_id: string; name?: string | null; student_number?: string }[],
+  batchSize: number
+): Promise<CollectedData[]> => {
+  const results: CollectedData[] = [];
+
+  for (let i = 0; i < students.length; i += batchSize) {
+    const batch = students.slice(i, i + batchSize);
+    console.log(
+      `[Scheduler] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(students.length / batchSize)} (${batch.length} students)`
+    );
+
+    const batchResults = await Promise.all(batch.map((student) => collectStudentData(student)));
+    results.push(...batchResults);
+
+    // Small delay between batches to avoid overwhelming the server
+    if (i + batchSize < students.length) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Send notifications for a student based on collected data
+ */
+const sendNotificationForStudent = async (
+  collectedData: CollectedData,
+  currentHour: number
+): Promise<void> => {
+  if (!collectedData.success) {
+    console.log(
+      `[Scheduler] Skipping notifications for ${collectedData.name || collectedData.qqId} due to data collection failure`
+    );
+    return;
+  }
+
+  const { qqId, name, electric, water, ac, room } = collectedData;
+  const notifications = scheduler.getNotificationsAtHourForUser(qqId, currentHour);
+
+  for (const notification of notifications) {
+    try {
+      // Check if threshold is set and if any balance is below it
+      let shouldSendNotification = true;
+      if (notification.threshold !== null && notification.threshold !== undefined) {
+        // Only send if any balance drops below the threshold
+        const threshold = notification.threshold;
+        shouldSendNotification =
+          (electric >= -10 && electric < threshold) ||
+          (water >= -10 && water < threshold) ||
+          (ac >= -10 && ac < threshold);
+
+        if (!shouldSendNotification) {
+          continue;
+        }
+      }
+
+      console.log(`[Scheduler] Sending notification to ${name || qqId} (${room})`);
+
+      // Get 24h change
+      const change24h = db.getBilling24HourChange(qqId);
+
+      // Get history for chart
+      const history = db.getBillingHistory(qqId, 7);
+
+      // Generate summary
+      let messageText = `🏠 ${room}\n\n`;
+      messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
+
+      // Build message segments
+      const messageSegments: SendMessageSegment[] = [{ type: 'text', data: { text: messageText } }];
+
+      // Add chart images
+      if (history.length >= 2) {
+        const chartData = history.reverse().map((h) => ({
+          timestamp: h.recorded_at,
+          electric: h.electric,
+          water: h.water,
+          ac: h.ac
+        }));
+
+        const charts = await generateBillingCharts(chartData, room);
+        for (const chart of charts) {
+          const base64Image = `base64://${chart.buffer.toString('base64')}`;
+          messageSegments.push({ type: 'image', data: { file: base64Image } });
+        }
+      }
+
+      // Send message
+      if (notification.chat_type && notification.chat_id) {
+        if (notification.chat_type === 'private') {
+          await napcat.send_private_msg({
+            user_id: parseInt(notification.chat_id),
+            message: messageSegments
+          });
+        } else {
+          await napcat.send_group_msg({
+            group_id: parseInt(notification.chat_id),
+            message: messageSegments
+          });
+        }
+        console.log(
+          `[Scheduler] Sent notification to ${notification.chat_type} ${notification.chat_id}`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[Scheduler] Failed to send notification for QQ ${qqId} to ${notification.chat_type} ${notification.chat_id}:`,
+        error
+      );
+    }
+  }
+};
+
 const runHourlyTasks = async () => {
   try {
     const currentHour = new Date().getHours();
@@ -289,100 +478,29 @@ const runHourlyTasks = async () => {
     const students = db.getAllStudents();
     console.log(`[Scheduler] Checking ${students.length} students`);
 
-    for (const student of students) {
-      try {
-        // 1. Collect Data
-        // Get credentials
-        const credentials = db.getCredentials(student.qq_id);
-        if (!credentials) {
-          console.log(`[Scheduler] No credentials for QQ ${student.qq_id}, skipping`);
-          continue;
-        }
-
-        // Get bills with automatic token management
-        const { electric, ac, water, room } = await getBillsWithTokenRefresh(student.qq_id);
-
-        // Record billing history
-        db.addBillingHistory(student.qq_id, electric, water, ac, room);
-        console.log(`[Scheduler] Collected data for ${student.name || student.qq_id} (${room})`);
-        db.updateLastLogin(student.qq_id);
-
-        const notifications = scheduler.getNotificationsAtHourForUser(student.qq_id, currentHour);
-
-        // 2. Send Notification
-        for (const notification of notifications) {
-          // Check if threshold is set and if any balance is below it
-          let shouldSendNotification = true;
-          if (notification.threshold !== null && notification.threshold !== undefined) {
-            // Only send if any balance drops below the threshold
-            const threshold = notification.threshold;
-            shouldSendNotification =
-              (electric >= -10 && electric < threshold) ||
-              (water >= -10 && water < threshold) ||
-              (ac >= -10 && ac < threshold);
-
-            if (!shouldSendNotification) {
-              continue;
-            }
-          }
-
-          console.log(
-            `[Scheduler] Sending notification to ${student.name || student.qq_id} (${room})`
-          );
-
-          // Get 24h change
-          const change24h = db.getBilling24HourChange(student.qq_id);
-
-          // Get history for chart
-          const history = db.getBillingHistory(student.qq_id, 7);
-
-          // Generate summary
-          let messageText = `🏠 ${room}\n\n`;
-          messageText += generateBillingSummary({ electric, water, ac }, change24h || undefined);
-
-          // Build message segments
-          const messageSegments: SendMessageSegment[] = [
-            { type: 'text', data: { text: messageText } }
-          ];
-
-          // Add chart images
-          if (history.length >= 2) {
-            const chartData = history.reverse().map((h) => ({
-              timestamp: h.recorded_at,
-              electric: h.electric,
-              water: h.water,
-              ac: h.ac
-            }));
-
-            const charts = await generateBillingCharts(chartData, room);
-            for (const chart of charts) {
-              const base64Image = `base64://${chart.buffer.toString('base64')}`;
-              messageSegments.push({ type: 'image', data: { file: base64Image } });
-            }
-          }
-
-          // Send message
-          if (notification.chat_type && notification.chat_id) {
-            if (notification.chat_type === 'private') {
-              await napcat.send_private_msg({
-                user_id: parseInt(notification.chat_id),
-                message: messageSegments
-              });
-            } else {
-              await napcat.send_group_msg({
-                group_id: parseInt(notification.chat_id),
-                message: messageSegments
-              });
-            }
-            console.log(
-              `[Scheduler] Sent notification to ${notification.chat_type} ${notification.chat_id}`
-            );
-          }
-        }
-      } catch (error) {
-        console.error(`[Scheduler] Failed to process QQ ${student.qq_id}:`, error);
-      }
+    if (students.length === 0) {
+      console.log('[Scheduler] No students to process');
+      return;
     }
+
+    // Phase 1: Collect data in parallel batches
+    console.log(
+      `[Scheduler] Phase 1: Collecting data (batch size: ${DATA_COLLECTION_BATCH_SIZE})...`
+    );
+    const collectedData = await collectData(students, DATA_COLLECTION_BATCH_SIZE);
+    const successCount = collectedData.filter((d) => d.success).length;
+    const failureCount = collectedData.length - successCount;
+    console.log(
+      `[Scheduler] Data collection complete: ${successCount} succeeded, ${failureCount} failed`
+    );
+
+    // Phase 2: Send notifications serially
+    console.log('[Scheduler] Phase 2: Sending notifications...');
+    for (const data of collectedData) {
+      await sendNotificationForStudent(data, currentHour);
+    }
+
+    console.log('[Scheduler] Hourly tasks completed');
   } catch (error) {
     console.error('[Scheduler] Error during hourly tasks:', error);
   }

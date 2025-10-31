@@ -1,6 +1,7 @@
 import { CARD_BASE, DFYC_BASE, NORETRY_ERROR_PREFIX } from './constants.js';
 import config from '../../config.json' with { type: 'json' };
 import type { Campus } from './database.js';
+import { fetch } from './fetch.js';
 
 interface BillResponse {
   msg: string;

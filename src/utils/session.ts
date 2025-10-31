@@ -1,5 +1,6 @@
 import { CARD_BASE } from './constants.js';
 import { encryptPassword } from './keyboard.js';
+import { fetch } from './fetch.js';
 
 export const obtainToken = async (username: string, password: string) => {
   password = await encryptPassword(password);

@@ -1,4 +1,5 @@
 import { CARD_BASE } from './constants.js';
+import { fetch } from './fetch.js';
 
 const getKeyboard = async () => {
   const response = await fetch(

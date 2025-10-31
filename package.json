@@ -16,6 +16,7 @@
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
     "child_process": "^1.0.2",
+    "https-proxy-agent": "^7.0.6",
     "node-napcat-ts": "^0.4.20"
   },
   "devDependencies": {

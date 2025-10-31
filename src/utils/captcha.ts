@@ -1,4 +1,5 @@
 import { CARD_BASE } from './constants.js';
+import { fetch } from './fetch.js';
 // import Tesseract from 'tesseract.js';
 
 export const obtainChallenge = async () => {

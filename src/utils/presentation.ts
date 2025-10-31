@@ -3,8 +3,7 @@ import type { ChartConfiguration } from 'chart.js';
 import { registerFont } from 'canvas';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-// Import to trigger date adapter registration
-import './chart-adapter.js';
+import { registerDateAdapter } from './chart-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,7 +17,12 @@ function getChartJSNodeCanvas(): ChartJSNodeCanvas {
     chartJSNodeCanvasInstance = new ChartJSNodeCanvas({
       width: 800,
       height: 500,
-      backgroundColour: 'white'
+      backgroundColour: 'white',
+      chartCallback: () => {
+        // Register date adapter with the Chart.js instance used by ChartJSNodeCanvas
+        // This is necessary because ChartJSNodeCanvas creates an isolated Chart.js context
+        registerDateAdapter();
+      }
     });
   }
   return chartJSNodeCanvasInstance;

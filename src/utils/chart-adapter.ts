@@ -189,6 +189,3 @@ export function registerDateAdapter() {
     }
   });
 }
-
-// Auto-register on import to ensure adapter is available
-registerDateAdapter();

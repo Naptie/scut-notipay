@@ -1,4 +1,4 @@
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ProxyAgent } from 'undici';
 
 /**
  * Custom fetch wrapper with proxy support
@@ -17,14 +17,13 @@ export const fetch = async (
   const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
 
   if (proxyUrl) {
-    // Create proxy agent
-    const agent = new HttpsProxyAgent(proxyUrl);
+    // Create undici proxy agent
+    const dispatcher = new ProxyAgent(proxyUrl);
 
-    // Add agent to the request options
-    // Node.js undici-based fetch uses 'dispatcher' for agent configuration
+    // Add dispatcher to the request options
     const requestInit = {
       ...init,
-      dispatcher: agent
+      dispatcher
     } as RequestInit;
 
     return globalThis.fetch(input, requestInit);

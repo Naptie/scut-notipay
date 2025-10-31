@@ -3,7 +3,8 @@ import type { ChartConfiguration } from 'chart.js';
 import { registerFont } from 'canvas';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { registerDateAdapter } from './chart-adapter.js';
+// Import to trigger date adapter registration
+import './chart-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,11 +18,7 @@ function getChartJSNodeCanvas(): ChartJSNodeCanvas {
     chartJSNodeCanvasInstance = new ChartJSNodeCanvas({
       width: 800,
       height: 500,
-      backgroundColour: 'white',
-      chartCallback: () => {
-        // Register date adapter with this Chart.js instance
-        registerDateAdapter();
-      }
+      backgroundColour: 'white'
     });
   }
   return chartJSNodeCanvasInstance;
@@ -105,10 +102,9 @@ export const generateBillingCharts = async (
   );
 
   // Convert data to {x, y} format with timestamps in milliseconds for proper time scaling
-  const timestamps = sorted.map((d) => new Date(d.timestamp));
-  const electricData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.electric }));
-  const waterData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.water }));
-  const acData = sorted.map((d, i) => ({ x: timestamps[i].getTime(), y: d.ac }));
+  const electricData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.electric }));
+  const waterData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.water }));
+  const acData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.ac }));
 
   // Determine which items have any values <= -10
   const hasNegativeElectric = sorted.some((d) => d.electric <= -10);

@@ -57,13 +57,18 @@ const FORMATS = {
   year: 'yyyy'
 };
 
+// Type definition for the adapter context
+interface DateAdapterContext {
+  options?: Record<string, unknown>;
+}
+
 export function registerDateAdapter() {
   _adapters._date.override({
     formats: function () {
       return FORMATS;
     },
 
-    parse: function (value: unknown, fmt?: string) {
+    parse: function (this: DateAdapterContext, value: unknown, fmt?: string) {
       if (value === null || typeof value === 'undefined') {
         return null;
       }
@@ -73,11 +78,9 @@ export function registerDateAdapter() {
         dateValue = toDate(value as Date | number);
       } else if (type === 'string') {
         if (typeof fmt === 'string') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          dateValue = parse(value as string, fmt, new Date(), (this as any).options);
+          dateValue = parse(value as string, fmt, new Date(), this.options);
         } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          dateValue = parseISO(value as string, (this as any).options);
+          dateValue = parseISO(value as string, this.options);
         }
       } else {
         return null;
@@ -85,9 +88,8 @@ export function registerDateAdapter() {
       return isValid(dateValue) ? dateValue.getTime() : null;
     },
 
-    format: function (time: number, fmt: string) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return format(time, fmt, (this as any).options);
+    format: function (this: DateAdapterContext, time: number, fmt: string) {
+      return format(time, fmt, this.options);
     },
 
     add: function (time: number, amount: number, unit: string) {
@@ -188,6 +190,5 @@ export function registerDateAdapter() {
   });
 }
 
-// Auto-register on import
+// Auto-register on import to ensure adapter is available
 registerDateAdapter();
-console.log('[Chart Adapter] date-fns adapter registered successfully');

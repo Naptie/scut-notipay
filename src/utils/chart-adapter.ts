@@ -1,7 +1,4 @@
-// Adapter registration helper for chartjs-adapter-date-fns
-// This file exports a function to register the adapter with a Chart.js instance
-
-import { _adapters } from 'chart.js';
+import type { Chart } from 'chart.js';
 import {
   toDate,
   parse,
@@ -57,18 +54,19 @@ const FORMATS = {
   year: 'yyyy'
 };
 
-// Type definition for the adapter context
-interface DateAdapterContext {
-  options?: Record<string, unknown>;
-}
+export function registerDateAdapter(ChartJS: typeof Chart) {
+  // @ts-expect-error This is the correct way to register a date adapter in Chart.js v4
+  ChartJS._adapters._date = class {
+    constructor(options: Record<string, unknown>) {
+      this.options = options || {};
+    }
+    options: Record<string, unknown>;
 
-export function registerDateAdapter() {
-  _adapters._date.override({
-    formats: function () {
+    formats() {
       return FORMATS;
-    },
+    }
 
-    parse: function (this: DateAdapterContext, value: unknown, fmt?: string) {
+    parse(value: unknown, fmt?: string) {
       if (value === null || typeof value === 'undefined') {
         return null;
       }
@@ -86,13 +84,13 @@ export function registerDateAdapter() {
         return null;
       }
       return isValid(dateValue) ? dateValue.getTime() : null;
-    },
+    }
 
-    format: function (this: DateAdapterContext, time: number, fmt: string) {
+    format(time: number, fmt: string) {
       return format(time, fmt, this.options);
-    },
+    }
 
-    add: function (time: number, amount: number, unit: string) {
+    add(time: number, amount: number, unit: string) {
       switch (unit) {
         case 'millisecond':
           return addMilliseconds(time, amount).getTime();
@@ -115,9 +113,9 @@ export function registerDateAdapter() {
         default:
           return time;
       }
-    },
+    }
 
-    diff: function (max: number, min: number, unit: string) {
+    diff(max: number, min: number, unit: string) {
       switch (unit) {
         case 'millisecond':
           return differenceInMilliseconds(max, min);
@@ -140,9 +138,9 @@ export function registerDateAdapter() {
         default:
           return 0;
       }
-    },
+    }
 
-    startOf: function (time: number, unit: string) {
+    startOf(time: number, unit: string, weekday: number) {
       switch (unit) {
         case 'second':
           return startOfSecond(time).getTime();
@@ -153,7 +151,9 @@ export function registerDateAdapter() {
         case 'day':
           return startOfDay(time).getTime();
         case 'week':
-          return startOfWeek(time).getTime();
+          return startOfWeek(time, { weekStartsOn: weekday } as {
+            weekStartsOn: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+          }).getTime();
         case 'month':
           return startOfMonth(time).getTime();
         case 'quarter':
@@ -163,9 +163,9 @@ export function registerDateAdapter() {
         default:
           return time;
       }
-    },
+    }
 
-    endOf: function (time: number, unit: string) {
+    endOf(time: number, unit: string) {
       switch (unit) {
         case 'second':
           return endOfSecond(time).getTime();
@@ -187,5 +187,5 @@ export function registerDateAdapter() {
           return time;
       }
     }
-  });
+  };
 }

@@ -18,10 +18,10 @@ function getChartJSNodeCanvas(): ChartJSNodeCanvas {
       width: 800,
       height: 500,
       backgroundColour: 'white',
-      chartCallback: () => {
+      chartCallback: (ChartJS) => {
         // Register date adapter with the Chart.js instance used by ChartJSNodeCanvas
         // This is necessary because ChartJSNodeCanvas creates an isolated Chart.js context
-        registerDateAdapter();
+        registerDateAdapter(ChartJS);
       }
     });
   }
@@ -173,14 +173,21 @@ const createChartConfig = (
   title: string,
   totalPoints: number
 ): ChartConfiguration => {
-  // Determine time unit based on the data range
-  let timeUnit: 'hour' | 'day' = 'hour';
-
-  // For larger datasets, we may want to switch to day view
-  if (totalPoints > 168) {
-    // More than a week of hourly data
-    timeUnit = 'day';
+  let hourInterval;
+  if (totalPoints < 48) {
+    hourInterval = 1;
+  } else if (totalPoints < 72) {
+    hourInterval = 2;
+  } else if (totalPoints < 96) {
+    hourInterval = 4;
+  } else if (totalPoints < 144) {
+    hourInterval = 6;
+  } else {
+    hourInterval = 8;
   }
+
+  const lastDataset = datasets[datasets.length - 1];
+  const lastHour = new Date(lastDataset.data[lastDataset.data.length - 1].x).getHours();
 
   return {
     type: 'line',
@@ -240,14 +247,6 @@ const createChartConfig = (
         },
         x: {
           type: 'time',
-          time: {
-            unit: timeUnit,
-            displayFormats: {
-              hour: 'HH:mm',
-              day: 'MM-dd'
-            },
-            tooltipFormat: 'yyyy-MM-dd HH:mm'
-          },
           title: {
             display: true,
             text: '时间',
@@ -256,11 +255,42 @@ const createChartConfig = (
             }
           },
           ticks: {
-            maxRotation: 90,
-            minRotation: 45,
+            maxRotation: 45,
+            minRotation: 0,
             font: {
               family: "'Sora', sans-serif"
-            }
+            },
+            callback: function (value, index, ticks) {
+              const date = new Date(value);
+
+              const hour = date.getHours();
+              const hourLabel = `${hour.toString().padStart(2, '0')}:00`;
+
+              if (index === ticks.length - 1) {
+                return hourLabel;
+              }
+
+              if (index >= ticks.length - hourInterval) {
+                const hourDiff = Math.abs(lastHour - hour);
+                if (hourDiff < hourInterval / 2) {
+                  return null;
+                }
+              }
+
+              if (hour === 0) {
+                return date.toLocaleDateString('zh-CN', {
+                  month: '2-digit',
+                  day: '2-digit'
+                });
+              }
+
+              if (hour % hourInterval === 0) {
+                return hourLabel;
+              }
+
+              return null;
+            },
+            autoSkip: false // Disable auto-skipping to use custom callback
           }
         }
       }

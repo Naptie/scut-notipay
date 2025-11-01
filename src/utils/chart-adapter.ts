@@ -62,6 +62,11 @@ export function registerDateAdapter(ChartJS: typeof Chart) {
     }
     options: Record<string, unknown>;
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    init(_chartOptions: Record<string, unknown>) {
+      // No-op
+    }
+
     formats() {
       return FORMATS;
     }

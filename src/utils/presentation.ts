@@ -3,9 +3,30 @@ import type { ChartConfiguration } from 'chart.js';
 import { registerFont } from 'canvas';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { registerDateAdapter } from './chart-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Create a singleton ChartJSNodeCanvas instance to reuse across chart generations
+// This ensures the date adapter registration persists
+let chartJSNodeCanvasInstance: ChartJSNodeCanvas | null = null;
+
+function getChartJSNodeCanvas(): ChartJSNodeCanvas {
+  if (!chartJSNodeCanvasInstance) {
+    chartJSNodeCanvasInstance = new ChartJSNodeCanvas({
+      width: 800,
+      height: 500,
+      backgroundColour: 'white',
+      chartCallback: (ChartJS) => {
+        // Register date adapter with the Chart.js instance used by ChartJSNodeCanvas
+        // This is necessary because ChartJSNodeCanvas creates an isolated Chart.js context
+        registerDateAdapter(ChartJS);
+      }
+    });
+  }
+  return chartJSNodeCanvasInstance;
+}
 
 // Register custom fonts
 try {
@@ -40,7 +61,7 @@ export interface ChartResult {
 
 interface DatasetConfig {
   label: string;
-  data: number[];
+  data: { x: number; y: number }[];
   borderColor: string;
   backgroundColor: string;
 }
@@ -84,33 +105,15 @@ export const generateBillingCharts = async (
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
-  // Format labels (show date and time for hourly data)
-  const labels = sorted.map((d) => {
-    const date = new Date(d.timestamp);
-
-    if (date.getHours() === 0 && date.getMinutes() === 0) {
-      return (
-        '▶' +
-        date.toLocaleDateString('zh-CN', {
-          month: '2-digit',
-          day: '2-digit'
-        })
-      );
-    }
-
-    return date.toLocaleTimeString('zh-CN', {
-      hour: 'numeric'
-    });
-  });
-
-  const electricData = sorted.map((d) => d.electric);
-  const waterData = sorted.map((d) => d.water);
-  const acData = sorted.map((d) => d.ac);
+  // Convert data to {x, y} format with timestamps in milliseconds for proper time scaling
+  const electricData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.electric }));
+  const waterData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.water }));
+  const acData = sorted.map((d) => ({ x: new Date(d.timestamp).getTime(), y: d.ac }));
 
   // Determine which items have any values <= -10
-  const hasNegativeElectric = electricData.some((v) => v <= -10);
-  const hasNegativeWater = waterData.some((v) => v <= -10);
-  const hasNegativeAc = acData.some((v) => v <= -10);
+  const hasNegativeElectric = sorted.some((d) => d.electric <= -10);
+  const hasNegativeWater = sorted.some((d) => d.water <= -10);
+  const hasNegativeAc = sorted.some((d) => d.ac <= -10);
 
   // Separate datasets into positive and negative groups
   const positiveDatasets: DatasetConfig[] = [];
@@ -123,7 +126,7 @@ export const generateBillingCharts = async (
   ];
 
   for (const { data: itemData, hasNegative, index } of allData) {
-    const isAllZero = itemData.every((v) => v === 0);
+    const isAllZero = itemData.every((point) => point.y === 0);
     if (isAllZero) {
       continue;
     }
@@ -132,30 +135,26 @@ export const generateBillingCharts = async (
     if (hasNegative) {
       negativeDatasets.push(config);
     } else {
-      config.data = itemData.map((v) => Math.max(v, 0));
+      config.data = itemData.map((point) => ({ x: point.x, y: Math.max(point.y, 0) }));
       positiveDatasets.push(config);
     }
   }
 
   // Create chart results
   const results: ChartResult[] = [];
-  const chartJSNodeCanvas = new ChartJSNodeCanvas({
-    width: 800,
-    height: 500,
-    backgroundColour: 'white'
-  });
+  const chartJSNodeCanvas = getChartJSNodeCanvas();
 
   try {
     if (positiveDatasets.length > 0) {
       const title = `${room} 余额账单`;
-      const config = createChartConfig(labels, positiveDatasets, title);
+      const config = createChartConfig(positiveDatasets, title, sorted.length);
       const buffer = await chartJSNodeCanvas.renderToBuffer(config);
       results.push({ buffer, title });
     }
 
     if (negativeDatasets.length > 0) {
       const title = `${room} 欠费账单`;
-      const config = createChartConfig(labels, negativeDatasets, title);
+      const config = createChartConfig(negativeDatasets, title, sorted.length);
       const buffer = await chartJSNodeCanvas.renderToBuffer(config);
       results.push({ buffer, title });
     }
@@ -167,14 +166,13 @@ export const generateBillingCharts = async (
 };
 
 /**
- * Create a chart configuration
+ * Create a chart configuration with time scale
  */
 const createChartConfig = (
-  labels: string[],
   datasets: DatasetConfig[],
-  title: string
+  title: string,
+  totalPoints: number
 ): ChartConfiguration => {
-  const totalPoints = labels.length;
   let hourInterval;
   if (totalPoints < 48) {
     hourInterval = 1;
@@ -188,13 +186,12 @@ const createChartConfig = (
     hourInterval = 8;
   }
 
-  const lastLabel = labels[labels.length - 1];
-  const lastHour = parseInt(lastLabel.split(':')[0], 10);
+  const lastDataset = datasets[datasets.length - 1];
+  const lastHour = new Date(lastDataset.data[lastDataset.data.length - 1].x).getHours();
 
   return {
     type: 'line',
     data: {
-      labels,
       datasets: datasets.map((ds) => ({
         label: ds.label,
         data: ds.data,
@@ -249,6 +246,7 @@ const createChartConfig = (
           }
         },
         x: {
+          type: 'time',
           title: {
             display: true,
             text: '时间',
@@ -257,10 +255,15 @@ const createChartConfig = (
             }
           },
           ticks: {
+            maxRotation: 45,
+            minRotation: 0,
+            font: {
+              family: "'Sora', sans-serif"
+            },
             callback: function (value, index, ticks) {
-              const label = this.getLabelForValue(value as number);
+              const date = new Date(value);
 
-              const hour = label.endsWith('时') ? parseInt(label, 10) : 0;
+              const hour = date.getHours();
               const hourLabel = `${hour.toString().padStart(2, '0')}:00`;
 
               if (index === ticks.length - 1) {
@@ -275,7 +278,10 @@ const createChartConfig = (
               }
 
               if (hour === 0) {
-                return label;
+                return date.toLocaleDateString('zh-CN', {
+                  month: '2-digit',
+                  day: '2-digit'
+                });
               }
 
               if (hour % hourInterval === 0) {
@@ -284,12 +290,7 @@ const createChartConfig = (
 
               return null;
             },
-            autoSkip: false, // Disable auto-skipping to use custom callback
-            maxRotation: 90,
-            minRotation: 45,
-            font: {
-              family: "'Sora', sans-serif"
-            }
+            autoSkip: false // Disable auto-skipping to use custom callback
           }
         }
       }

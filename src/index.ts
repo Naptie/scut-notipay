@@ -795,7 +795,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     }
   } catch (error) {
     console.error('Error handling message:', error);
-    await send('操作失败，请稍后重试。');
+    await send('操作失败，请稍后重试。').catch();
   }
 });
 

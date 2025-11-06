@@ -611,12 +611,12 @@ const handleHelp = async (
 ) => {
   const message =
     `[${APP_NAME}] 可用命令：\n\n` +
-    '1. 绑定账号（私聊）：\n' +
+    '1. 绑定账号（仅限私聊）：\n' +
     `${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>\n` +
     `   例：${command} bind 123456 123456 GZIC\n\n` +
-    '2. 解绑账号（私聊或群聊）：\n' +
+    '2. 解绑账号：\n' +
     `${command} unbind\n\n` +
-    '3. 查询当前账单（私聊或群聊）：\n' +
+    '3. 查询当前账单：\n' +
     `${command} query [起始时间] [结束时间]\n` +
     '   或\n' +
     `${command} bills [起始时间] [结束时间]\n` +
@@ -626,11 +626,11 @@ const handleHelp = async (
     '   - 带分隔符：10-30|23:30，10/30|23:30，10/30/23:30\n' +
     `   例：${command} query 7d（显示最近 7 天；默认）\n` +
     `   例：${command} query 1025 1030（显示 10 月 25 日至 30 日）\n\n` +
-    '4. 设置定时通知（私聊或群聊）：\n' +
+    '4. 设置定时通知：\n' +
     `${command} notify <小时 (0-23)> [阈值]\n` +
     `   例：${command} notify 20 10\n` +
     '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
-    '5. 取消定时通知（私聊或群聊）：\n' +
+    '5. 取消定时通知：\n' +
     `${command} unnotify\n\n` +
     '如有疑问，请联系管理员。\n' +
     `当前 commit：${commitHash}\n` +

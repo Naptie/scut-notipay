@@ -562,9 +562,11 @@ const handleNotifyCommand = async (
       return;
     }
 
-    let message = '目前设置的定时通知：\n';
+    notifications.sort((a, b) => a.hour - b.hour);
+
+    let message = '目前设置的定时通知：';
     for (const notification of notifications) {
-      message += `- ${notification.hour.toString().padStart(2, '0')}:00 ${
+      message += `\n- ${notification.hour.toString().padStart(2, '0')}:00 ${
         notification.chat_type === 'private'
           ? '私聊'
           : await napcat
@@ -574,9 +576,8 @@ const handleNotifyCommand = async (
               .then((info) => info.group_name)
       }`;
       if (notification.threshold !== null && notification.threshold !== undefined) {
-        message += `[${notification.threshold} 元]`;
+        message += ` [${notification.threshold} 元]`;
       }
-      message += '\n';
     }
     await sendFn(message);
     return;

@@ -548,7 +548,37 @@ const handleNotifyCommand = async (
   sendFn: (message: string) => Promise<void>
 ) => {
   if (params.length < 1 || params.length > 2) {
-    await sendFn(`用法：${command} notify <小时 (0-23)> [阈值]`);
+    await sendFn(
+      `查询定时通知：${command} notify list\n` +
+        `设置定时通知：${command} notify <小时 (0-23)> [阈值]`
+    );
+    return;
+  }
+
+  if (params[0] === 'list') {
+    const notifications = scheduler.getNotificationsForUser(qqId);
+    if (notifications.length === 0) {
+      await sendFn('您还未设置定时通知。');
+      return;
+    }
+
+    let message = '目前设置的定时通知：\n';
+    for (const notification of notifications) {
+      message += `- ${notification.hour.toString().padStart(2, '0')}:00 ${
+        notification.chat_type === 'private'
+          ? '私聊'
+          : await napcat
+              .get_group_info({
+                group_id: parseInt(notification.chat_id)
+              })
+              .then((info) => info.group_name)
+      }`;
+      if (notification.threshold !== null && notification.threshold !== undefined) {
+        message += `[${notification.threshold} 元]`;
+      }
+      message += '\n';
+    }
+    await sendFn(message);
     return;
   }
 
@@ -626,11 +656,13 @@ const handleHelp = async (
     '   - 带分隔符：10-30|23:30，10/30|23:30，10/30/23:30\n' +
     `   例：${command} query 7d（显示最近 7 天；默认）\n` +
     `   例：${command} query 1025 1030（显示 10 月 25 日至 30 日）\n\n` +
-    '4. 设置定时通知：\n' +
+    '4. 查询定时通知：\n' +
+    `${command} notify list\n\n` +
+    '5. 设置定时通知：\n' +
     `${command} notify <小时 (0-23)> [阈值]\n` +
     `   例：${command} notify 20 10\n` +
     '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
-    '5. 取消定时通知：\n' +
+    '6. 取消定时通知：\n' +
     `${command} unnotify\n\n` +
     '如有疑问，请联系管理员。\n' +
     `当前 commit：${commitHash}\n` +

@@ -665,7 +665,8 @@ const handleHelp = async (
     '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
     '6. 取消定时通知：\n' +
     `${command} unnotify\n\n` +
-    '如有疑问，请联系管理员。\n' +
+    '尖括号 <> 表示必填参数，中括号 [] 表示可选参数。\n' +
+    '如有其他疑问，请联系管理员。\n' +
     `当前 commit：${commitHash}\n` +
     `GitHub 仓库：${GITHUB_LINK}`;
   await sendFn([{ type: 'node', data: { content: [{ type: 'text', data: { text: message } }] } }]);

@@ -471,7 +471,9 @@ const sendNotificationForStudent = async (
 
 const runHourlyTasks = async () => {
   try {
-    const currentHour = new Date().getHours();
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const currentHour = minutes >= 30 ? (now.getHours() + 1) % 24 : now.getHours();
     console.log(`[Scheduler] Running for hour: ${currentHour}`);
 
     // Get all students with their notification settings

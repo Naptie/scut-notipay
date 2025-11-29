@@ -25,6 +25,7 @@ export interface Student {
   salt: string;
   name?: string;
   student_number?: string;
+  fetch_interval?: string;
   created_at?: string;
   updated_at?: string;
   last_login?: string;
@@ -39,6 +40,7 @@ export interface StudentPublic {
   campus: Campus;
   name?: string;
   student_number?: string;
+  fetch_interval: string;
   created_at: string;
   updated_at: string;
   last_login?: string;
@@ -67,6 +69,7 @@ class StudentDatabase {
         salt TEXT NOT NULL,
         name TEXT,
         student_number TEXT,
+        fetch_interval TEXT DEFAULT '1d',
         access_token TEXT,
         tgc TEXT,
         loc_session TEXT,
@@ -116,6 +119,13 @@ class StudentDatabase {
     this.db.exec(createBillingHistoryTableSQL);
     this.db.exec(createNotificationsTableSQL);
     this.db.exec(createIndexSQL);
+
+    // Migration: Add fetch_interval column if it doesn't exist
+    try {
+      this.db.exec("ALTER TABLE students ADD COLUMN fetch_interval TEXT DEFAULT '1d'");
+    } catch {
+      // Column likely already exists, ignore
+    }
   }
 
   /**
@@ -134,15 +144,16 @@ class StudentDatabase {
     campus: Campus,
     password: string,
     name?: string,
-    studentNumber?: string
+    studentNumber?: string,
+    fetchInterval: string = '1d'
   ): StudentPublic {
     const salt = this.generateSalt();
     // Encrypt the actual card password for secure storage
     const encryptedPassword = encryptionService.encrypt(password, MASTER_PASSWORD);
 
     const stmt = this.db.prepare(`
-      INSERT INTO students (qq_id, card_id, campus, encrypted_password, salt, name, student_number)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO students (qq_id, card_id, campus, encrypted_password, salt, name, student_number, fetch_interval)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(qq_id) DO UPDATE SET
         card_id = excluded.card_id,
         campus = excluded.campus,
@@ -150,10 +161,11 @@ class StudentDatabase {
         salt = excluded.salt,
         name = COALESCE(excluded.name, name),
         student_number = COALESCE(excluded.student_number, student_number),
+        fetch_interval = excluded.fetch_interval,
         updated_at = datetime('now', 'localtime')
     `);
 
-    stmt.run(qqId, cardId, campus, encryptedPassword, salt, name, studentNumber);
+    stmt.run(qqId, cardId, campus, encryptedPassword, salt, name, studentNumber, fetchInterval);
 
     const student = this.getStudent(qqId);
     if (!student) {
@@ -167,7 +179,7 @@ class StudentDatabase {
    */
   getStudent(qqId: string): StudentPublic | null {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, fetch_interval, created_at, updated_at, last_login
       FROM students
       WHERE qq_id = ?
     `);
@@ -343,6 +355,20 @@ class StudentDatabase {
   }
 
   /**
+   * Update student fetch interval
+   */
+  updateFetchInterval(qqId: string, fetchInterval: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE students
+      SET fetch_interval = ?,
+          updated_at = datetime('now', 'localtime')
+      WHERE qq_id = ?
+    `);
+
+    stmt.run(fetchInterval, qqId);
+  }
+
+  /**
    * Delete a student
    */
   deleteStudent(qqId: string): boolean {
@@ -356,7 +382,7 @@ class StudentDatabase {
    */
   getAllStudents(): StudentPublic[] {
     const stmt = this.db.prepare(`
-      SELECT id, qq_id, card_id, campus, name, student_number, created_at, updated_at, last_login
+      SELECT id, qq_id, card_id, campus, name, student_number, fetch_interval, created_at, updated_at, last_login
       FROM students
       ORDER BY created_at DESC
     `);

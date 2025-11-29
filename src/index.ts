@@ -17,6 +17,61 @@ try {
 }
 
 /**
+ * Parse a relative time string and return the duration in hours
+ * Supports formats like:
+ * - "7h" (7 hours)
+ * - "3d" (3 days)
+ * - "2w" (2 weeks)
+ */
+const parseRelativeTime = (param: string): number => {
+  const cleanParam = param.replace(/[^0-9a-zA-Z]/g, '');
+  const unitMatch = cleanParam.match(/^(\d+)([hdw])$/i);
+
+  if (unitMatch) {
+    const value = parseInt(unitMatch[1], 10);
+    const unit = unitMatch[2].toLowerCase();
+
+    if (unit === 'h') {
+      return value;
+    } else if (unit === 'd') {
+      return value * 24;
+    } else if (unit === 'w') {
+      return value * 24 * 7;
+    }
+  }
+
+  throw new Error('Invalid relative time format');
+};
+
+/**
+ * Calculate the next fetch time based on last login or creation time and interval
+ */
+const calculateNextFetchTime = (
+  lastLogin: string | undefined,
+  createdAt: string,
+  intervalHours: number
+): Date => {
+  let baseTime: Date;
+  if (lastLogin) {
+    // If fetched before, use last fetch time rounded to nearest hour
+    baseTime = new Date(lastLogin);
+    if (baseTime.getMinutes() >= 30) {
+      baseTime.setHours(baseTime.getHours() + 1);
+    }
+    baseTime.setMinutes(0, 0, 0);
+  } else {
+    // If never fetched, use creation time rounded to nearest hour
+    baseTime = new Date(createdAt);
+    if (baseTime.getMinutes() >= 30) {
+      baseTime.setHours(baseTime.getHours() + 1);
+    }
+    baseTime.setMinutes(0, 0, 0);
+  }
+
+  return new Date(baseTime.getTime() + intervalHours * 60 * 60 * 1000);
+};
+
+/**
  * Parse a time parameter from user input (using local time UTC+8)
  * Supports formats like:
  * - "7h" (7 hours ago)
@@ -30,25 +85,14 @@ const parseTimeParameter = (param: string): Date => {
   // Get current time in local timezone (UTC+8)
   const now = new Date();
 
-  // Remove all non-digit and non-letter characters for initial check
-  const cleanParam = param.replace(/[^0-9a-zA-Z]/g, '');
-
-  // Check if it ends with time unit (h, d, w)
-  const unitMatch = cleanParam.match(/^(\d+)([hdw])$/i);
-  if (unitMatch) {
-    const value = parseInt(unitMatch[1], 10);
-    const unit = unitMatch[2].toLowerCase();
-
-    // Create a new date and subtract time
+  // Try to parse as relative time first
+  try {
+    const hours = parseRelativeTime(param);
     const result = new Date(now);
-    if (unit === 'h') {
-      result.setHours(result.getHours() - value);
-    } else if (unit === 'd') {
-      result.setDate(result.getDate() - value);
-    } else if (unit === 'w') {
-      result.setDate(result.getDate() - value * 7);
-    }
+    result.setHours(result.getHours() - hours);
     return result;
+  } catch {
+    // Not a relative time format, continue to other formats
   }
 
   // Check for delimiters (-, /, :, |, space) to parse as date/time
@@ -88,6 +132,7 @@ const parseTimeParameter = (param: string): Date => {
   }
 
   // Parse as continuous digits (e.g., "1030" or "10302330")
+  const cleanParam = param.replace(/[^0-9a-zA-Z]/g, '');
   const digitsOnly = cleanParam;
 
   if (digitsOnly.length < 4) {
@@ -477,19 +522,64 @@ const runHourlyTasks = async () => {
     console.log(`[Scheduler] Running for hour: ${currentHour}`);
 
     // Get all students with their notification settings
-    const students = db.getAllStudents();
-    console.log(`[Scheduler] Checking ${students.length} students`);
+    const allStudents = db.getAllStudents();
+    console.log(`[Scheduler] Checking ${allStudents.length} students`);
 
-    if (students.length === 0) {
+    if (allStudents.length === 0) {
       console.log('[Scheduler] No students to process');
+      return;
+    }
+
+    const studentsToFetch: typeof allStudents = [];
+
+    for (const student of allStudents) {
+      let shouldFetch = false;
+
+      // Phase 0 (a): Check notifications
+      const notifications = scheduler.getNotificationsAtHourForUser(student.qq_id, currentHour);
+      if (notifications.length > 0) {
+        shouldFetch = true;
+        console.log(`[Scheduler] Fetching for ${student.qq_id} due to scheduled notification`);
+      }
+
+      // Phase 0 (b): Check fetch interval
+      if (!shouldFetch) {
+        try {
+          const intervalHours = parseRelativeTime(student.fetch_interval || '1d');
+          const nextFetchTime = calculateNextFetchTime(
+            student.last_login,
+            student.created_at,
+            intervalHours
+          );
+
+          // Check if current time is at or after the scheduled fetch time
+          // We use a small buffer (5 mins) to handle slight timing differences
+          if (now.getTime() >= nextFetchTime.getTime() - 5 * 60 * 1000) {
+            shouldFetch = true;
+            console.log(
+              `[Scheduler] Fetching for ${student.qq_id} due to interval (Next: ${nextFetchTime.toLocaleString()}, Interval: ${student.fetch_interval})`
+            );
+          }
+        } catch (e) {
+          console.error(`[Scheduler] Error checking interval for ${student.qq_id}:`, e);
+        }
+      }
+
+      if (shouldFetch) {
+        studentsToFetch.push(student);
+      }
+    }
+
+    if (studentsToFetch.length === 0) {
+      console.log('[Scheduler] No students need fetching this hour');
       return;
     }
 
     // Phase 1: Collect data in parallel batches
     console.log(
-      `[Scheduler] Phase 1: Collecting data (batch size: ${DATA_COLLECTION_BATCH_SIZE})...`
+      `[Scheduler] Phase 1: Collecting data for ${studentsToFetch.length} students (batch size: ${DATA_COLLECTION_BATCH_SIZE})...`
     );
-    const collectedData = await collectData(students, DATA_COLLECTION_BATCH_SIZE);
+    const collectedData = await collectData(studentsToFetch, DATA_COLLECTION_BATCH_SIZE);
     const successCount = collectedData.filter((d) => d.success).length;
     const failureCount = collectedData.length - successCount;
     console.log(
@@ -604,7 +694,7 @@ const handleNotifyCommand = async (
   const credentials = db.getCredentials(qqId);
   if (!credentials) {
     await sendFn(
-      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>`
+      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)> [更新间隔]`
     );
     return;
   }
@@ -638,6 +728,93 @@ const handleUnnotifyCommand = async (
   }
 };
 
+const handleIntervalCommand = async (
+  command: string,
+  params: string[],
+  qqId: string,
+  sendFn: (message: string) => Promise<void>
+) => {
+  // Check if user has credentials
+  const credentials = db.getCredentials(qqId);
+  if (!credentials) {
+    await sendFn(
+      `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)> [更新间隔]`
+    );
+    return;
+  }
+
+  if (params.length === 0) {
+    // Get
+    const student = db.getStudent(qqId);
+    if (student) {
+      let message = `当前自动更新间隔：${student.fetch_interval || '1d'}`;
+      try {
+        const hours = parseRelativeTime(student.fetch_interval || '1d');
+        let nextFetch = calculateNextFetchTime(student.last_login, student.created_at, hours);
+        const now = new Date();
+
+        // If the calculated next fetch time is in the past, the scheduler will pick it up at the next hour
+        if (nextFetch < now) {
+          nextFetch = new Date(now);
+          if (nextFetch.getMinutes() > 0 || nextFetch.getSeconds() > 0) {
+            nextFetch.setHours(nextFetch.getHours() + 1);
+          }
+          nextFetch.setMinutes(0, 0, 0);
+        }
+
+        const timeStr = `${nextFetch.getMonth() + 1}月${nextFetch.getDate()}日 ${nextFetch.getHours()}:00`;
+        message += `\n下次自动更新将在 ${timeStr} 进行。`;
+      } catch {
+        // Ignore error
+      }
+      await sendFn(message);
+    }
+    return;
+  }
+
+  if (params.length === 1) {
+    // Set
+    const intervalStr = params[0];
+    try {
+      const hours = parseRelativeTime(intervalStr);
+      if (hours < 1) {
+        await sendFn('间隔时间不能小于 1 小时。');
+        return;
+      }
+
+      db.updateFetchInterval(qqId, intervalStr);
+
+      let message = `已设置自动更新间隔为：${intervalStr}（${hours} 小时）。`;
+
+      // Calculate next fetch time
+      const student = db.getStudent(qqId);
+      if (student) {
+        let nextFetch = calculateNextFetchTime(student.last_login, student.created_at, hours);
+        const now = new Date();
+
+        // If the calculated next fetch time is in the past, the scheduler will pick it up at the next hour
+        if (nextFetch < now) {
+          nextFetch = new Date(now);
+          if (nextFetch.getMinutes() > 0 || nextFetch.getSeconds() > 0) {
+            nextFetch.setHours(nextFetch.getHours() + 1);
+          }
+          nextFetch.setMinutes(0, 0, 0);
+        }
+
+        const timeStr = `${nextFetch.getMonth() + 1}月${nextFetch.getDate()}日 ${nextFetch.getHours()}:00`;
+        message += `\n下次自动更新将在 ${timeStr} 进行。`;
+      }
+
+      await sendFn(message);
+    } catch {
+      await sendFn('时间格式不正确。示例：1d, 12h');
+    }
+    return;
+  }
+
+  await sendFn(`用法：${command} interval [时间间隔]`);
+};
+
 const handleHelp = async (
   command: string,
   sendFn: (message: string | SendMessageSegment[]) => Promise<void>
@@ -645,8 +822,9 @@ const handleHelp = async (
   const message =
     `[${APP_NAME}] 可用命令：\n\n` +
     '1. 绑定账号（仅限私聊）：\n' +
-    `${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)>\n` +
-    `   例：${command} bind 123456 123456 GZIC\n\n` +
+    `${command} bind <卡号> <卡片密码> <校区 (GZIC 或 DXC)> [更新间隔]\n` +
+    `   例：${command} bind 123456 123456 GZIC 1d\n` +
+    '   更新间隔默认为 1d（1 天），支持 h（小时）、d（天）、w（周）。\n\n' +
     '2. 解绑账号：\n' +
     `${command} unbind\n\n` +
     '3. 查询当前账单：\n' +
@@ -667,6 +845,9 @@ const handleHelp = async (
     '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
     '6. 取消定时通知：\n' +
     `${command} unnotify\n\n` +
+    '7. 设置更新间隔：\n' +
+    `${command} interval [时间间隔]\n` +
+    `   例：${command} interval 12h\n\n` +
     '尖括号 <> 表示必填参数，中括号 [] 表示可选参数。\n' +
     '如有其他疑问，请联系管理员。\n' +
     `当前 commit：${commitHash}\n` +
@@ -702,15 +883,33 @@ napcat.on('message', async (context: AllHandlers['message']) => {
     const chatId = (isPrivateChat ? context.sender.user_id : context.group_id).toString();
 
     if (subcommand === 'bind' && isPrivateChat) {
-      if (params.length !== 3) {
-        await send(`用法：${command} ${subcommand} <卡号> <卡片密码> <校区(GZIC 或 DXC)>`);
+      if (params.length < 3 || params.length > 4) {
+        await send(
+          `用法：${command} ${subcommand} <卡号> <卡片密码> <校区(GZIC 或 DXC)> [更新间隔]`
+        );
         return;
       }
-      const [cardId, password, campus] = params;
+      const [cardId, password, campus, intervalParam] = params;
       if (CAMPUSES.includes(campus.toUpperCase() as Campus) === false) {
         await send('校区必须是 GZIC 或 DXC。');
         return;
       }
+
+      let fetchInterval = '1d';
+      if (intervalParam) {
+        try {
+          const hours = parseRelativeTime(intervalParam);
+          if (hours < 1) {
+            await send('更新间隔不能小于 1 小时。');
+            return;
+          }
+          fetchInterval = intervalParam;
+        } catch {
+          await send('更新间隔格式不正确。示例：1d, 12h');
+          return;
+        }
+      }
+
       console.log(`[Bind] QQ: ${qqId}, Card ID: ${cardId}`);
       const result = await login(cardId, password);
       if (result === null) {
@@ -723,13 +922,32 @@ napcat.on('message', async (context: AllHandlers['message']) => {
         campus.toUpperCase() as Campus,
         password,
         result.name,
-        result.sno
+        result.sno,
+        fetchInterval
       );
       // Store the access token from login
       db.updateTokens(qqId, result.access_token, result.TGC, result.locSession, result.expires_in);
       console.log(`[DB] Stored credentials and token for ${result.name} (${result.sno})`);
 
-      await send(`成功绑定到 ${result.name}（学号：${result.sno}）。`);
+      let message = `成功绑定到 ${result.name}（学号：${result.sno}）。`;
+
+      // Calculate first fetch time
+      try {
+        const hours = parseRelativeTime(fetchInterval);
+        const firstFetch = new Date(Date.now() + hours * 60 * 60 * 1000);
+        // Round to next hour to match scheduler behavior
+        if (firstFetch.getMinutes() > 0 || firstFetch.getSeconds() > 0) {
+          firstFetch.setHours(firstFetch.getHours() + 1);
+          firstFetch.setMinutes(0, 0, 0);
+        }
+
+        const timeStr = `${firstFetch.getMonth() + 1}月${firstFetch.getDate()}日 ${firstFetch.getHours()}:00`;
+        message += `\n首次自动更新将在 ${timeStr} 进行（间隔：${fetchInterval}）。`;
+      } catch {
+        // Ignore error in message generation
+      }
+
+      await send(message);
     } else if (subcommand === 'unbind') {
       // Clear token before deleting (though CASCADE will handle this)
       db.clearAccessToken(qqId);
@@ -743,7 +961,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       const credentials = db.getCredentials(qqId);
       if (!credentials) {
         await send(
-          `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)>`
+          `您还未绑定账号。请私聊发送：${command} bind <卡号> <卡片密码> <校区(GZIC 或 DXC)> [更新间隔]`
         );
         return;
       }
@@ -828,6 +1046,8 @@ napcat.on('message', async (context: AllHandlers['message']) => {
       await handleNotifyCommand(command, params, qqId, context.message_type, chatId, send);
     } else if (subcommand === 'unnotify') {
       await handleUnnotifyCommand(qqId, context.message_type, chatId, send);
+    } else if (subcommand === 'interval') {
+      await handleIntervalCommand(command, params, qqId, send);
     }
   } catch (error) {
     console.error('Error handling message:', error);

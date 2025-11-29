@@ -206,7 +206,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   }
   const userInfo = await userInfoResponse.json();
   if (userInfo.statusCode !== '200') {
-    throw new Error(`Get userInfo API Error: ${userInfo.message || 'Unknown error'}`);
+    throw new Error(`Get userInfo API Error: ${userInfo.message || userInfo}`);
   }
   const room = userInfo.resultObject.roomName;
 
@@ -229,7 +229,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   const electricData = await ammeterBalanceResponse.json();
   if (electricData.statusCode !== '200') {
     throw new Error(
-      `Get ammeterBalanceResponse API Error: ${electricData.message || 'Unknown error'}`
+      `Get ammeterBalanceResponse API Error: ${electricData.message || electricData}`
     );
   }
   const electric = parseFloat(electricData.resultObject.leftMoney.toString());
@@ -252,7 +252,7 @@ const getBillsDXC = async (token: string, TGC: string, locSession: string) => {
   }
   const waterData = await waterBalanceResponse.json();
   if (waterData.statusCode !== '200') {
-    throw new Error(`Get waterBalance API Error: ${waterData.message || 'Unknown error'}`);
+    throw new Error(`Get waterBalance API Error: ${waterData.message || waterData}`);
   }
   const water = parseFloat(waterData.resultObject.leftMoney);
 

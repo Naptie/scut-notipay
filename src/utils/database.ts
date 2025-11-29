@@ -119,13 +119,6 @@ class StudentDatabase {
     this.db.exec(createBillingHistoryTableSQL);
     this.db.exec(createNotificationsTableSQL);
     this.db.exec(createIndexSQL);
-
-    // Migration: Add fetch_interval column if it doesn't exist
-    try {
-      this.db.exec("ALTER TABLE students ADD COLUMN fetch_interval TEXT DEFAULT '1d'");
-    } catch {
-      // Column likely already exists, ignore
-    }
   }
 
   /**

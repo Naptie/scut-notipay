@@ -264,10 +264,14 @@ const createChartConfig = (
               const date = new Date(value);
 
               const hour = date.getHours();
+              const dateLabel = date.toLocaleDateString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit'
+              });
               const hourLabel = `${hour.toString().padStart(2, '0')}:00`;
 
               if (index === ticks.length - 1) {
-                return hourLabel;
+                return hour === 0 ? dateLabel : hourLabel;
               }
 
               if (index >= ticks.length - hourInterval) {
@@ -278,10 +282,7 @@ const createChartConfig = (
               }
 
               if (hour === 0) {
-                return date.toLocaleDateString('zh-CN', {
-                  month: '2-digit',
-                  day: '2-digit'
-                });
+                return dateLabel;
               }
 
               if (hour % hourInterval === 0) {

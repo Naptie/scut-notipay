@@ -59,7 +59,7 @@ class StudentDatabase {
    * Initialize the database schema
    */
   private initializeDatabase(): void {
-    const createTableSQL = `
+    const createStudentsTableSQL = `
       CREATE TABLE IF NOT EXISTS students (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         qq_id TEXT NOT NULL UNIQUE,
@@ -115,7 +115,7 @@ class StudentDatabase {
       CREATE INDEX IF NOT EXISTS idx_chat ON notifications(chat_type, chat_id);
     `;
 
-    this.db.exec(createTableSQL);
+    this.db.exec(createStudentsTableSQL);
     this.db.exec(createBillingHistoryTableSQL);
     this.db.exec(createNotificationsTableSQL);
     this.db.exec(createIndexSQL);

@@ -828,15 +828,18 @@ const handleHelp = async (
     '2. 解绑账号：\n' +
     `${command} unbind\n\n` +
     '3. 查询当前账单：\n' +
-    `${command} query [起始时间] [结束时间]\n` +
+    `${command} query [起始时间] [结束时间] [显示项目]\n` +
     '   或\n' +
-    `${command} bills [起始时间] [结束时间]\n` +
+    `${command} bills [起始时间] [结束时间] [显示项目]\n` +
     '   时间格式支持：\n' +
     '   - 相对时间：7h（7 小时前），3d（3 天前），2w（2 周前）\n' +
     '   - 绝对时间：1030（10 月 30 日 0:00），10302330（10 月 30 日 23:30）\n' +
     '   - 带分隔符：10-30|23:30，10/30|23:30，10/30/23:30\n' +
+    '   显示项目（可选）：\n' +
+    '   - e：电费，w：水费，a：空调费\n' +
+    '   - 组合使用：ew（电费+水费），ewa（全部；默认）\n' +
     `   例：${command} query 7d（显示最近 7 天；默认）\n` +
-    `   例：${command} query 1025 1030（显示 10 月 25 日至 30 日）\n\n` +
+    `   例：${command} query 1025 1030 e（显示 10 月 25 日至 30 日的电费）\n\n` +
     '4. 查询定时通知：\n' +
     `${command} notify list\n\n` +
     '5. 设置定时通知：\n' +
@@ -966,16 +969,27 @@ napcat.on('message', async (context: AllHandlers['message']) => {
         return;
       }
 
-      // Parse time range parameters
+      // Parse parameters
       let startTime: Date | null = null;
       let endTime: Date | null = null;
+      let lines = 'ewa'; // Default to showing all
+
+      const timeParams: string[] = [];
+      for (const param of params) {
+        // Check if param is a line filter (only contains e, w, a, case-insensitive)
+        if (/^[ewaEWA]+$/.test(param)) {
+          lines = param;
+        } else {
+          timeParams.push(param);
+        }
+      }
 
       try {
-        if (params.length >= 1) {
-          startTime = parseTimeParameter(params[0]);
+        if (timeParams.length >= 1) {
+          startTime = parseTimeParameter(timeParams[0]);
         }
-        if (params.length >= 2) {
-          endTime = parseTimeParameter(params[1]);
+        if (timeParams.length >= 2) {
+          endTime = parseTimeParameter(timeParams[1]);
         }
 
         // Validation
@@ -1032,7 +1046,7 @@ napcat.on('message', async (context: AllHandlers['message']) => {
             })
           );
 
-        const charts = await generateBillingCharts(chartData, room);
+        const charts = await generateBillingCharts(chartData, room, lines);
         for (const chart of charts) {
           const base64Image = `base64://${chart.buffer.toString('base64')}`;
           messageSegments.push({ type: 'image', data: { file: base64Image } });

@@ -94,7 +94,8 @@ const DATASET_CONFIGS: DatasetConfig[] = [
  */
 export const generateBillingCharts = async (
   data: ChartData[],
-  room: string
+  room: string,
+  lines: string = 'ewa'
 ): Promise<ChartResult[]> => {
   if (data.length < 2) {
     return [];
@@ -115,17 +116,24 @@ export const generateBillingCharts = async (
   const hasNegativeWater = sorted.some((d) => d.water <= -10);
   const hasNegativeAc = sorted.some((d) => d.ac <= -10);
 
+  // Determine which lines to show
+  const showElectric = lines.toLowerCase().includes('e');
+  const showWater = lines.toLowerCase().includes('w');
+  const showAc = lines.toLowerCase().includes('a');
+
   // Separate datasets into positive and negative groups
   const positiveDatasets: DatasetConfig[] = [];
   const negativeDatasets: DatasetConfig[] = [];
 
   const allData = [
-    { data: electricData, hasNegative: hasNegativeElectric, index: 0 },
-    { data: waterData, hasNegative: hasNegativeWater, index: 1 },
-    { data: acData, hasNegative: hasNegativeAc, index: 2 }
+    { data: electricData, hasNegative: hasNegativeElectric, index: 0, show: showElectric },
+    { data: waterData, hasNegative: hasNegativeWater, index: 1, show: showWater },
+    { data: acData, hasNegative: hasNegativeAc, index: 2, show: showAc }
   ];
 
-  for (const { data: itemData, hasNegative, index } of allData) {
+  for (const { data: itemData, hasNegative, index, show } of allData) {
+    if (!show) continue;
+
     const isAllZero = itemData.every((point) => point.y === 0);
     if (isAllZero) {
       continue;

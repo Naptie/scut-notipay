@@ -444,13 +444,19 @@ const sendNotificationForStudent = async (
     try {
       // Check if threshold is set and if any balance is below it
       let shouldSendNotification = true;
+      const lines = notification.lines || 'ewa';
+
       if (notification.threshold !== null && notification.threshold !== undefined) {
         // Only send if any balance drops below the threshold
         const threshold = notification.threshold;
-        shouldSendNotification =
-          (electric >= -10 && electric < threshold) ||
-          (water >= -10 && water < threshold) ||
-          (ac >= -10 && ac < threshold);
+        shouldSendNotification = false;
+
+        if (lines.toLowerCase().includes('e') && electric >= -10 && electric < threshold)
+          shouldSendNotification = true;
+        if (lines.toLowerCase().includes('w') && water >= -10 && water < threshold)
+          shouldSendNotification = true;
+        if (lines.toLowerCase().includes('a') && ac >= -10 && ac < threshold)
+          shouldSendNotification = true;
 
         if (!shouldSendNotification) {
           continue;
@@ -481,7 +487,7 @@ const sendNotificationForStudent = async (
           ac: h.ac
         }));
 
-        const charts = await generateBillingCharts(chartData, room);
+        const charts = await generateBillingCharts(chartData, room, lines);
         for (const chart of charts) {
           const base64Image = `base64://${chart.buffer.toString('base64')}`;
           messageSegments.push({ type: 'image', data: { file: base64Image } });
@@ -639,10 +645,10 @@ const handleNotifyCommand = async (
   chatId: string,
   sendFn: (message: string) => Promise<void>
 ) => {
-  if (params.length < 1 || params.length > 2) {
+  if (params.length < 1 || params.length > 3) {
     await sendFn(
       `查询定时通知：${command} notify list\n` +
-        `设置定时通知：${command} notify <小时 (0-23)> [阈值]`
+        `设置定时通知：${command} notify <小时 (0-23)> [阈值] [通知项目]`
     );
     return;
   }
@@ -670,6 +676,9 @@ const handleNotifyCommand = async (
       if (notification.threshold !== null && notification.threshold !== undefined) {
         message += ` [${notification.threshold} 元]`;
       }
+      if (notification.lines && notification.lines !== 'ewa') {
+        message += ` [${notification.lines.toUpperCase()}]`;
+      }
     }
     await sendFn(message);
     return;
@@ -682,11 +691,20 @@ const handleNotifyCommand = async (
   }
 
   let threshold: number | undefined;
-  if (params.length === 2) {
-    threshold = parseFloat(params[1]);
-    if (isNaN(threshold) || threshold < 0) {
-      await sendFn('阈值必须是非负数字。');
-      return;
+  let lines = 'ewa';
+
+  for (let i = 1; i < params.length; i++) {
+    const param = params[i];
+    if (/^[ewaEWA]+$/.test(param)) {
+      lines = param;
+    } else {
+      const val = parseFloat(param);
+      if (!isNaN(val) && val >= 0) {
+        threshold = val;
+      } else {
+        await sendFn('参数格式错误。阈值必须是非负数字，通知项目由 e/w/a 组成。');
+        return;
+      }
     }
   }
 
@@ -700,17 +718,17 @@ const handleNotifyCommand = async (
   }
 
   // Set notification
-  scheduler.setNotification(chatType, chatId, qqId, hour, threshold);
+  scheduler.setNotification(chatType, chatId, qqId, hour, threshold, lines);
 
   let message = `已设置每日 ${hour} 时在此${chatType === 'private' ? '私聊' : '群聊'}`;
   if (threshold !== undefined) {
-    message += `当任一余额低于 ${threshold} 元时`;
+    message += `当任一余额（${lines.toUpperCase()}）低于 ${threshold} 元时`;
   }
   message += '发送账单报告。';
 
   await sendFn(message);
   console.log(
-    `[Notify] Set notification for ${chatType} ${chatId}, QQ ${qqId}, hour ${hour}, threshold ${threshold ?? 'none'}`
+    `[Notify] Set notification for ${chatType} ${chatId}, QQ ${qqId}, hour ${hour}, threshold ${threshold ?? 'none'}, lines ${lines}`
   );
 };
 
@@ -843,9 +861,11 @@ const handleHelp = async (
     '4. 查询定时通知：\n' +
     `${command} notify list\n\n` +
     '5. 设置定时通知：\n' +
-    `${command} notify <小时 (0-23)> [阈值]\n` +
+    `${command} notify <小时 (0-23)> [阈值] [通知项目]\n` +
     `   例：${command} notify 20 10\n` +
-    '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n\n' +
+    '   每天晚上 8 点当任一余额低于 10 元时发送账单报告。\n' +
+    `   例：${command} notify 20 10 e\n` +
+    '   每天晚上 8 点当电费低于 10 元时发送账单报告（仅包含电费图表）。\n\n' +
     '6. 取消定时通知：\n' +
     `${command} unnotify\n\n` +
     '7. 设置更新间隔：\n' +

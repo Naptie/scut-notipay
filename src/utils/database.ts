@@ -101,6 +101,7 @@ class StudentDatabase {
         qq_id TEXT NOT NULL,
         hour INTEGER NOT NULL CHECK(hour >= 0 AND hour <= 23),
         threshold REAL,
+        lines TEXT DEFAULT 'ewa',
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime')),
         UNIQUE(chat_type, chat_id, qq_id)
@@ -119,6 +120,13 @@ class StudentDatabase {
     this.db.exec(createBillingHistoryTableSQL);
     this.db.exec(createNotificationsTableSQL);
     this.db.exec(createIndexSQL);
+
+    // Migration: Add lines column to notifications if it doesn't exist
+    const tableInfo = this.db.pragma('table_info(notifications)') as Array<{ name: string }>;
+    const hasLinesColumn = tableInfo.some((col) => col.name === 'lines');
+    if (!hasLinesColumn) {
+      this.db.exec("ALTER TABLE notifications ADD COLUMN lines TEXT DEFAULT 'ewa'");
+    }
   }
 
   /**

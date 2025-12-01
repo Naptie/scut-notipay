@@ -7,6 +7,7 @@ export interface Notification {
   qq_id: string;
   hour: number;
   threshold?: number | null;
+  lines?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -26,7 +27,8 @@ class NotificationScheduler {
     chatId: string,
     qqId: string,
     hour: number,
-    threshold?: number
+    threshold?: number,
+    lines: string = 'ewa'
   ): Notification {
     if (hour < 0 || hour > 23) {
       throw new Error('Hour must be between 0 and 23');
@@ -37,15 +39,16 @@ class NotificationScheduler {
     }
 
     const stmt = this.db.prepare(`
-      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, threshold)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO notifications (chat_type, chat_id, qq_id, hour, threshold, lines)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(chat_type, chat_id, qq_id) DO UPDATE SET
         hour = excluded.hour,
         threshold = excluded.threshold,
+        lines = excluded.lines,
         updated_at = datetime('now', 'localtime')
     `);
 
-    stmt.run(chatType, chatId, qqId, hour, threshold ?? null);
+    stmt.run(chatType, chatId, qqId, hour, threshold ?? null, lines);
 
     const notification = this.getNotification(chatType, chatId, qqId);
     if (!notification) {

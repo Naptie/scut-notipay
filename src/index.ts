@@ -323,6 +323,7 @@ const parseMessage = (context: AllHandlers['message']) => {
 };
 
 // Combined timer for data collection and notifications
+let hourlyTimeout: NodeJS.Timeout | null = null;
 let hourlyInterval: NodeJS.Timeout | null = null;
 
 /**
@@ -605,6 +606,9 @@ const runHourlyTasks = async () => {
 };
 
 const startHourlyTimer = () => {
+  // Clear any existing timers to prevent duplicates on reconnection
+  stopHourlyTimer();
+
   // Calculate delay until next top of the hour
   const now = new Date();
   const minutes = now.getMinutes();
@@ -619,16 +623,22 @@ const startHourlyTimer = () => {
   );
 
   // Schedule first run at the top of the next hour
-  setTimeout(() => {
+  hourlyTimeout = setTimeout(() => {
     runHourlyTasks();
 
     // Then run every hour on the hour
     hourlyInterval = setInterval(runHourlyTasks, 60 * 60 * 1000);
+    hourlyTimeout = null;
     console.log('[Scheduler] Timer started (runs every hour on the hour)');
   }, delayUntilNextHour);
 };
 
 const stopHourlyTimer = () => {
+  if (hourlyTimeout) {
+    clearTimeout(hourlyTimeout);
+    hourlyTimeout = null;
+    console.log('[Scheduler] Pending timer cleared');
+  }
   if (hourlyInterval) {
     clearInterval(hourlyInterval);
     hourlyInterval = null;

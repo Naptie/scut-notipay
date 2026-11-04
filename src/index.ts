@@ -316,7 +316,9 @@ napcat.on('socket.close', () => {
 
 napcat.on('socket.error', (context) => {
   if (context.error_type === 'response_error') {
-    console.error(`[NapCat] NapCat rejected a request: ${context.info.message} (errno ${context.info.errno})`);
+    console.error(
+      `[NapCat] NapCat rejected a request: ${context.info.message} (errno ${context.info.errno})`
+    );
     return;
   }
   console.error('[NapCat] WebSocket connection error, reconnecting...');
